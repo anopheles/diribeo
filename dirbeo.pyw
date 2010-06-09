@@ -49,12 +49,6 @@ class EpisodeTableModel(QtCore.QAbstractTableModel):
         self.row_lookup = lambda episode: ["", episode.title, episode.date, episode.plot]
         self.column_lookup = ["", "Title", "Date", "Plot Summary"]
 
-
-    def update_progress_bar(self, current, maximum):
-        self.progressbar.setRange(0, maximum - 1) 
-        self.progressbar.setValue(current)
-
-
     def set_generator(self, generator):
         self.generator = generator
 
