@@ -88,24 +88,11 @@ class EpisodeTableModel(QtCore.QAbstractTableModel):
             if orientation == Qt.Horizontal:
                 #the column
                 return QtCore.QString(self.column_lookup[section])
-            elif orientation == Qt.Vertical:
-                #the row
-                try:
-                    return None
-                    return QtCore.QString(str(self.episodes[section].get_descriptor()))
-                except IndexError:
-                    pass
-
 
     def insertRows(self, row, count, modelindex):
         self.beginInsertRows(QtCore.QModelIndex(), row, count)
         self.endInsertRows()
         return True  
-
-    def setData(self, index, variant, role):
-        self.emit(QtCore.SIGNAL('dataChanged(index, index)'))        
-        return True        
-
 
 class OnlineSearch(QtGui.QFrame):
     def __init__(self, parent=None):
