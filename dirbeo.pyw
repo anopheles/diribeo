@@ -1,13 +1,16 @@
 # -*- coding: utf-8 -*-
-"""
-Created on Thu Apr 01 01:22:35 2010
 
-@author: anopheles
-"""
+__author__ = 'David Kaufman'
+__version__ = '0.0.1dev'
+__license__ = 'pending'
 
-import datetime, json, re, sys, os, hashlib
+import datetime
+import json
+import re
+import sys
+import os
+import hashlib
 
-# Import PyQt4 stuff
 from PyQt4 import QtGui
 from PyQt4 import QtCore
 from PyQt4.QtCore import Qt
@@ -562,6 +565,8 @@ class MainWindow(QtGui.QMainWindow):
     def __init__(self, parent = None):
         QtGui.QMainWindow.__init__(self, parent)
 
+        self.existing_series = None # stores the currently active series object
+        
         episode_table_widget = EpisodeViewWidget()        
         self.setCentralWidget(episode_table_widget)
         
@@ -605,7 +610,7 @@ class MainWindow(QtGui.QMainWindow):
         self.tableview.setModel(None)
         
         self.setWindowTitle("Series Organizer")
-        self.resize(1200, 720)
+        self.resize_to_percentage(66)
         self.center()
 
     
@@ -613,6 +618,11 @@ class MainWindow(QtGui.QMainWindow):
         screen = QtGui.QDesktopWidget().screenGeometry()
         size =  self.geometry()
         self.move((screen.width()-size.width())/2, (screen.height()-size.height())/2)
+
+
+    def resize_to_percentage(self, percentage):
+        screen = QtGui.QDesktopWidget().screenGeometry()
+        self.resize(screen.width()*percentage/100.0, screen.height()*percentage/100.0)
 
 
     def keyPressEvent(self, event):        
