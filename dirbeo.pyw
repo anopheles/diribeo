@@ -992,7 +992,7 @@ class IMDBHelper(object):
                 try:
                     return datetime.date(int(datematching.group(3)), self.month_to_integer(datematching.group(2)), int(datematching.group(1)))
                 except AttributeError:
-                    print "Error: Date " + imdbdate 
+                    logging.debug("Error: Date " + imdbdate) 
 
     def month_to_integer(self, monthname):
         return { "January" : 1, "February" : 2, "March": 3, "April" : 4, "May" : 5, "June" : 6,
