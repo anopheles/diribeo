@@ -73,7 +73,7 @@ class EpisodeTableModel(QtCore.QAbstractTableModel):
 
     def get_gradient_bg(self, index):
         gradient = QtGui.QLinearGradient(0, 0, 0, 200)
-        backgroundcolor = get_color_shade(index)
+        backgroundcolor = get_color_shade(index, 5)
         comp_backgroundcolor =  get_complementary_color(backgroundcolor)
         gradient.setColorAt(0.0, comp_backgroundcolor.lighter(50))
         gradient.setColorAt(1.0, comp_backgroundcolor.lighter(150))
@@ -774,7 +774,7 @@ def create_default_image(episode):
 
     #draw background
     gradient = QtGui.QLinearGradient(0, 0, 0, heigth*2)
-    backgroundcolor = get_color_shade(episode.descriptor[0])
+    backgroundcolor = get_color_shade(episode.descriptor[0], 5)
     comp_backgroundcolor =  get_complementary_color(backgroundcolor)
     gradient.setColorAt(0.0, comp_backgroundcolor.lighter(50))
     gradient.setColorAt(1.0, comp_backgroundcolor.lighter(150))
@@ -798,9 +798,8 @@ def get_complementary_color(qtcolor):
     return QtGui.QColor.fromHsv(h, s, v, a)
 
 
-def get_color_shade(index):  
-    number_of_colors = 5
-    return [QtGui.QColor.fromHsvF(colornumber/float(number_of_colors), 1, 0.9, 0.25) for colornumber in range(number_of_colors)][index]
+def get_color_shade(index, number_of_colors):      
+    return [QtGui.QColor.fromHsvF(colornumber/float(number_of_colors), 1, 0.9, 0.25) for colornumber in range(number_of_colors)][index % number_of_colors]
 
 class MovieClip(object):
     def __init__(self, filepath, identifier, filesize = None, checksum = None):
