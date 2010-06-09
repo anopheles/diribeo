@@ -1088,6 +1088,40 @@ class Episode(object):
         return self.identifier.keys()[0] + self.identifier[self.identifier.keys()[0]]
         
 
+
+
+class Settings(object):
+    def __init__(self):    
+
+        ''' Defines if newly assigned movieclips are copied into their respective directory structure.
+            If this property is false this implies that the original file is moved instead of copied.     
+        '''
+        self.copy_associated_movieclips = True
+        
+        
+        ''' Defines the folder in which all importan information is saved conserning this application.
+            Note that this musn't be the execution directory of this application.
+        '''
+        self.deployment_folder = os.path.join(self.get_user_dir,".dirbeo")
+        
+        
+        ''' Specifies if thumbnails should be created as soon as the movie clip gets associated with an 
+            episode or series
+        '''       
+        self.automatic_thumbnail_creation = False        
+
+
+    def get_user_dir(self):
+        ''' Returns the user/Home directory of the user running this application. '''        
+        return os.path.expanduser("~")
+        
+    
+    def create_deployment_folder(self):
+        ''' Creates the deployment folder if it doesn't exist '''
+        if not os.path.exists(self.deployment_folder):
+            os.makedirs(self.deployment_folder)
+            
+
 def load_series():
     return load_file("series.ini", [])    
     
