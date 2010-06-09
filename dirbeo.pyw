@@ -5,7 +5,7 @@ Created on Thu Apr 01 01:22:35 2010
 @author: anopheles
 """
 
-import datetime, json, re, colorsys, sys, os, hashlib
+import datetime, json, re, sys, os, hashlib
 
 # Import PyQt4 stuff
 from PyQt4 import QtGui
@@ -802,13 +802,10 @@ def get_color_shade(index):
     number_of_colors = 5
     saturation = 1
     value = 0.90
-    tranparency = 66
+    tranparency = 0.25
 
-    colorpool = []
-    for rgb in [colorsys.hsv_to_rgb((x + 1) * 1.0/float(number_of_colors), saturation, value) for x in range(number_of_colors)]:
-        colorpool.append(QtGui.QColor(rgb[0]*255, rgb[1]*255, rgb[2]*255, tranparency))
-    return colorpool[index % number_of_colors - 1]
-
+    colorpool = []    
+    return [QtGui.QColor.fromHsvF(colornumber/float(number_of_colors), saturation, value, tranparency) for colornumber in range(number_of_colors)][index]
 
 class MovieClip(object):
     def __init__(self, filepath, identifier, filesize = None, checksum = None):
