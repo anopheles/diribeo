@@ -800,12 +800,7 @@ def get_complementary_color(qtcolor):
 
 def get_color_shade(index):  
     number_of_colors = 5
-    saturation = 1
-    value = 0.90
-    tranparency = 0.25
-
-    colorpool = []    
-    return [QtGui.QColor.fromHsvF(colornumber/float(number_of_colors), saturation, value, tranparency) for colornumber in range(number_of_colors)][index]
+    return [QtGui.QColor.fromHsvF(colornumber/float(number_of_colors), 1, 0.9, 0.25) for colornumber in range(number_of_colors)][index]
 
 class MovieClip(object):
     def __init__(self, filepath, identifier, filesize = None, checksum = None):
