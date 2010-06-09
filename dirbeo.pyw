@@ -10,12 +10,16 @@ import re
 import sys
 import os
 import hashlib
+import logging
 
 from PyQt4 import QtGui
 from PyQt4 import QtCore
 from PyQt4.QtCore import Qt
 
 
+# Initialize the logger
+log_filename = "logger_output.out"
+logging.basicConfig(filename=log_filename,  format='%(asctime)s %(levelname)s %(message)s', level=logging.DEBUG, filemode='w')
 
 class SeriesSearchWorker(QtCore.QThread):
    
