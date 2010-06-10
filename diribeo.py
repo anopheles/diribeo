@@ -336,8 +336,7 @@ class SeriesInformationWidget(QtGui.QWidget):
         
         # Handle the movie clips        
         self.movieclipwidget.load_movieclips(movie.get_movieclips())
-
-        
+                
 
     def default_text(self, text):
         if text == None or text == "":
@@ -427,13 +426,9 @@ class EpisodeViewWidget(QtGui.QWidget):
         self.tableview = QtGui.QTableView(self) 
         self.tableview.verticalHeader().setDefaultSectionSize(125)
         self.tableview.horizontalHeader().setStretchLastSection(True)
-        self.tableview.setShowGrid(False)
-
-        #initialze the progress bar
-        self.progressbar = SeriesProgressbar()    
+        self.tableview.setShowGrid(False)  
 
         mainbox.addWidget(self.tableview)
-        mainbox.addWidget(self.progressbar) 
         self.setLayout(mainbox)
 
 
@@ -521,7 +516,6 @@ class SeriesProgressbar(QtGui.QProgressBar):
         self.setMaximum(60)
         QtGui.QProgressBar.reset(self)
 
-
     def refresh_progressbar(self):
         current, maximum = 0, 0
         for item in self.workers.items():
@@ -562,6 +556,15 @@ class MainWindow(QtGui.QMainWindow):
         statusbar.showMessage("Ready")
         statusbar.setSizeGripEnabled(False)
         self.setStatusBar(statusbar)
+        
+        # Initialize the progress bar and assign to the statusbar
+        self.progressbar = SeriesProgressbar()  
+        self.progressbar.setMaximumHeight(10)
+        self.progressbar.setMaximumWidth(100)
+        
+        statusbar.addPermanentWidget(self.progressbar)
+
+        
 
         #initalize the tool bar
         self.addToolBar(ToolBar())
@@ -587,9 +590,6 @@ class MainWindow(QtGui.QMainWindow):
         self.online_search.onlinesearchbutton.clicked.connect(self.search, Qt.QueuedConnection)
         self.online_search.onlineserieslist.itemSelectionChanged.connect(self.load_into_table, Qt.QueuedConnection)          
         self.local_search.localseriestree.selectionModel().selectionChanged.connect(self.load_into_local_table)        
-
-
-        self.progressbar = episode_table_widget.progressbar
         
         self.load_all_series_into_their_table()
         self.tableview.setModel(None)
@@ -655,11 +655,12 @@ class MainWindow(QtGui.QMainWindow):
 
     def load_existing_series_into_table(self, series):
         try:
-            self.tableview.setModel(activemodels[series])
-            self.tableview.selectionModel().currentRowChanged.connect(self.load_episode_information_at_index)
+            self.tableview.setModel(activemodels[series]) 
+            self.tableview.selectionModel().currentRowChanged.connect(self.load_episode_information_at_index)           
         except KeyError:                    
             activemodels[series] = model = EpisodeTableModel(episodes = series.episodes)
-            self.tableview.setModel(model)
+            self.tableview.setModel(model)            
+            
             
     def load_into_table(self):
         """ Loads the selected episodes from the clicked series in the onlineserieslist """
@@ -675,8 +676,7 @@ class MainWindow(QtGui.QMainWindow):
                 series_list.append(current_series)
                 activemodels[current_series] = model = EpisodeTableModel()
                 self.tableview.setModel(model)
-                self.existing_series = current_series
-                self.tableview.selectionModel().currentRowChanged.connect(self.load_episode_information_at_index)
+                self.existing_series = current_series                
                 job = ModelFiller(model, current_series, self, movie = movie)
                 
                 job.finished.connect(self.progressbar.operation_finished, type = QtCore.Qt.QueuedConnection)
