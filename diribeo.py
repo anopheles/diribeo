@@ -453,7 +453,7 @@ class OnlineSearchDock(QtGui.QDockWidget):
     def __init__(self, parent = None):
         QtGui.QDockWidget.__init__(self, parent)
         self.setWidget(OnlineSearch())
-        self.setWindowTitle("Online Search")
+        self.setWindowTitle("+")
         self.setFeatures(QtGui.QDockWidget.DockWidgetMovable | QtGui.QDockWidget.DockWidgetFloatable)
 
         
@@ -504,24 +504,22 @@ class SeriesProgressbar(QtGui.QProgressBar):
     def __init__(self, parent=None, tablemodel = None):
         QtGui.QProgressBar.__init__(self, parent)
         self.workers = {}
+        self.timer = QtCore.QTimer()
+        self.timer.timeout.connect(self.refresh_progressbar)
 
     def waiting(self):        
-        self.setValue(10)
+        self.setValue(-1)
         self.setMinimum(0)
         self.setMaximum(0)  
 
     def reset(self):        
-        self.setValue(0)
+        self.setValue(-1)
         self.setMinimum(0)
-        self.setMaximum(60)
+        self.setMaximum(1)
         QtGui.QProgressBar.reset(self)
 
     def refresh_progressbar(self):
-        current, maximum = 0, 0
-        for item in self.workers.items():
-            current += item[1][0]
-            maximum += item[1][1]
-
+        current, maximum = map(sum, zip(*self.workers.values()))
         self.setValue(current)
         self.setMaximum(maximum)        
 
@@ -533,12 +531,12 @@ class SeriesProgressbar(QtGui.QProgressBar):
             pass
         if len(self.workers) == 0:
             self.reset()
-        else:
-            self.refresh_progressbar()
+            self.timer.stop()
 
     def update_bar(self, thread, current, maximum):        
         self.workers[thread] = [current, maximum]
-        self.refresh_progressbar()
+        if not self.timer.isActive():
+            self.timer.start(1000);
 
 class MainWindow(QtGui.QMainWindow):
     def __init__(self, parent = None):
@@ -562,9 +560,7 @@ class MainWindow(QtGui.QMainWindow):
         self.progressbar.setMaximumHeight(10)
         self.progressbar.setMaximumWidth(100)
         
-        statusbar.addPermanentWidget(self.progressbar)
-
-        
+        statusbar.addPermanentWidget(self.progressbar)        
 
         #initalize the tool bar
         self.addToolBar(ToolBar())
@@ -581,9 +577,12 @@ class MainWindow(QtGui.QMainWindow):
         series_info_dock = SeriesInformationDock()
         self.seriesinfo =  series_info_dock.seriesinfo
         
+        self.setDockOptions(QtGui.QMainWindow.AnimatedDocks | QtGui.QMainWindow.ForceTabbedDocks)        
         self.addDockWidget(Qt.LeftDockWidgetArea, online_search_dock)
-        self.addDockWidget(Qt.LeftDockWidgetArea, local_search_dock)        
+        self.addDockWidget(Qt.LeftDockWidgetArea, local_search_dock)
+        self.tabifyDockWidget(local_search_dock, online_search_dock)                    
         self.addDockWidget(Qt.RightDockWidgetArea, series_info_dock)
+        local_search_dock.raise_()   # Show local search dock 
         
         self.seriessearcher = SeriesSearchWorker()        
        
@@ -897,7 +896,7 @@ class IMDBHelper(object):
         #Get information about the episodes
         self.ia.update(imdb_series, 'episodes')
 
-        seasons = imdb_series['episodes']
+        seasons = imdb_series.get('episodes')
 
         numberofepisodes = imdb_series['number of episodes'] - 1
 
@@ -950,7 +949,7 @@ class IMDBHelper(object):
             try:
                 if series.identifier["imdb"] == movie.movieID:
                     return series
-            except KeyError:
+            except KeyError, TypeError:
                 pass
 
     def get_rating(self, ratings, imdb_episode):
