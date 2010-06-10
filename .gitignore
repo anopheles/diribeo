@@ -7,3 +7,4 @@ settings.json
 .project
 .pydevproject
 logger_output.out
+*.pyc
