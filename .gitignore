@@ -1,6 +1,9 @@
 .settings
 externals & studies
 imdb
-movieclips.ini
-series.ini
+movieclips.json
+series.json
+settings.json
+.project
+.pydevproject
 logger_output.out
