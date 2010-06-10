@@ -326,13 +326,13 @@ class SeriesInformationWidget(QtGui.QWidget):
             pass
         
         # Handle the director
-        self.director.setText(self.default_text(str(movie.director)))
+        self.director.setText(self.default_text(movie.director))
         
         # Handle the movie date
         self.airdate.setText(self.default_text(str(movie.date)))
         
         # Handle the genre
-        self.genre.setText(self.default_text(str(movie.genre)))
+        self.genre.setText(self.default_text(movie.genre))
         
         # Handle the movie clips        
         self.movieclipwidget.load_movieclips(movie.get_movieclips())
