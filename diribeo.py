@@ -337,8 +337,7 @@ class SeriesInformationWidget(QtGui.QWidget):
             
 
     def load_information(self, movie):
-        self.clear_all_info()
-        
+        self.clear_all_info()        
         
         self.movie = movie
         
@@ -644,6 +643,7 @@ class MainWindow(QtGui.QMainWindow):
         
         
     def delete_series(self):
+        #TODO this doesn't work on series which have been downloaded in the current session        
         series = self.existing_series       
         
         # Make sure that you're actually deleting a series
