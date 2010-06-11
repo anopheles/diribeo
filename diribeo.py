@@ -262,7 +262,7 @@ class SeriesInformationWidget(QtGui.QWidget):
         self.director = QtGui.QLabel(default)
         self.rating = QtGui.QLabel(default)
         self.airdate = QtGui.QLabel(default)
-        self.plot = QtGui.QTextEdit(default)
+        self.plot = QtGui.QLabel(default)
         self.genre = QtGui.QLabel(default)
 
         
@@ -331,7 +331,7 @@ class SeriesInformationWidget(QtGui.QWidget):
     def clear_all_info(self):
         self.title.setText(self.default)
         self.rating.setText(self.default)
-        #self.plot.setText(self.default)
+        self.plot.setText(self.default) # If plot is a textedit this will fail und crash the app
         self.genre.setText(self.default)
         self.director.setText(self.default)  
             
