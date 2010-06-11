@@ -28,7 +28,7 @@ class SeriesSearchWorker(QtCore.QThread):
 
     def run(self):
         self.serieslist.clear()
-        result = imdbhelper.search_movie(self.searchfield.text())
+        result = imdbwrapper.search_movie(self.searchfield.text())
         for series_widget_item in result:             
             self.serieslist.addItem(series_widget_item)
 
@@ -146,13 +146,24 @@ class LocalSearch(QtGui.QFrame):
         localframelayout.addLayout(localsearchgrid)
         localframelayout.addWidget(self.localseriestree)
 
-        self.toplevel_items = []
+    def remove_series(self, series):        
+        count = self.localseriestree.topLevelItemCount()
+        for number in range(count):            
+            item = self.localseriestree.topLevelItem(number)
+            if item.series == series:
+                delete_item = item                    
+        self.localseriestree.removeItemWidget(delete_item, 0)
+
+    def sort_tree(self):
+        self.localseriestree.sortItems(0, Qt.AscendingOrder)
 
     def insert_top_level_item(self, series):
         item = QtGui.QTreeWidgetItem([series.title])
-        item.series = series
-        self.toplevel_items.append(item)
-        self.localseriestree.addTopLevelItem(item)        
+        item.series = series        
+        self.localseriestree.addTopLevelItem(item)
+        self.localseriestree.setCurrentItem(item)
+        self.sort_tree()
+                
 
 
     def initial_build_tree(self):
@@ -171,6 +182,7 @@ class LocalSearch(QtGui.QFrame):
                 child_episode = QtGui.QTreeWidgetItem(child_season,[episode.title]) 
                 child_episode.series = parent_series.series
         self.localseriestree.addTopLevelItem(parent_series)
+        self.sort_tree()
 
     def update_tree(self, series):    
         for toplevelitem in self.toplevel_items:
@@ -228,6 +240,8 @@ class MovieClipOverviewWidget(QtGui.QWidget):
 class SeriesInformationWidget(QtGui.QWidget):
     def __init__(self, parent = None):
         QtGui.QWidget.__init__(self, parent)
+        
+        self.header_layout = QtGui.QHBoxLayout()        
 
         self.default = default = "-"
         # Specifies the amount of spacing beetween each group
@@ -240,20 +254,41 @@ class SeriesInformationWidget(QtGui.QWidget):
         #default_font.setPointSize(11)        
         self.title.setFont(default_font)
         
+        self.check = QtGui.QCheckBox()
+        self.movieclipwidget = MovieClipOverviewWidget()
         self.director = QtGui.QLabel(default)
         self.rating = QtGui.QLabel(default)
         self.airdate = QtGui.QLabel(default)
         self.plot = QtGui.QTextEdit(default)
         self.genre = QtGui.QLabel(default)
-        self.check = QtGui.QCheckBox()
-        self.movieclipwidget = MovieClipOverviewWidget()
+
         
         layout = QtGui.QVBoxLayout(self)
         layout.setSizeConstraint(QtGui.QLayout.SetFixedSize)
-        self.setLayout(layout)   
+        self.setLayout(layout)         
+        
+        self.update_button = QtGui.QPushButton("Update")
+        
+        self.delete_button = QtGui.QPushButton("Delete")        
+        
+        self.header_layout.addWidget(self.delete_button)
+        self.header_layout.addWidget(self.update_button)
         
         layout.addWidget(self.title)
+        layout.addLayout(self.header_layout)
         layout.addSpacing(spacing)
+        
+        seenit_label = QtGui.QLabel("Seen it?")
+        seenit_label.setFont(default_font)
+        layout.addWidget(seenit_label)
+        layout.addWidget(self.check)
+        layout.addSpacing(spacing)
+
+        movieclips_label = QtGui.QLabel("Movie Clips")
+        movieclips_label.setFont(default_font)
+        layout.addWidget(movieclips_label)
+        layout.addWidget(self.movieclipwidget)
+        layout.addSpacing(spacing) 
 
         director_label = QtGui.QLabel("Director")
         director_label.setFont(default_font)
@@ -283,28 +318,29 @@ class SeriesInformationWidget(QtGui.QWidget):
         genre_label.setFont(default_font)
         layout.addWidget(genre_label)
         layout.addWidget(self.genre)
-        layout.addSpacing(spacing)
-
-        seenit_label = QtGui.QLabel("Seen it?")
-        seenit_label.setFont(default_font)
-        layout.addWidget(seenit_label)
-        layout.addWidget(self.check)
-        layout.addSpacing(spacing)
-
-        movieclips_label = QtGui.QLabel("Movie Clips")
-        movieclips_label.setFont(default_font)
-        layout.addWidget(movieclips_label)
-        layout.addWidget(self.movieclipwidget)
-        layout.addSpacing(spacing)       
+        layout.addSpacing(spacing)      
         
         self.setAcceptDrops(True)
 
-
     def sizeHint(self):
         return QtCore.QSize(600, 300)
+    
+    def clear_all_info(self):
+        self.title.setText(self.default)
+        self.rating.setText(self.default)
+        self.plot.setText(self.default)
+        self.genre.setText(self.default)
+        self.director.setText(self.default)        
 
     def load_information(self, movie):
+        self.clear_all_info()
+        
         self.movie = movie
+        
+        if isinstance(self.movie, Series):
+            self.delete_button.setVisible(True)
+        else:
+            self.delete_button.setVisible(False)
         
         # Handle the title
         try:
@@ -437,6 +473,7 @@ class SeriesInformationDock(QtGui.QDockWidget):
         QtGui.QDockWidget.__init__(self, parent)
         self.seriesinfo = SeriesInformationWidget() 
         scrollArea = QtGui.QScrollArea()
+        scrollArea.setMinimumWidth(300) # TODO
         scrollArea.setWidget(self.seriesinfo)
         self.setWidget(scrollArea)
         self.setWindowTitle("Additional Information")
@@ -453,7 +490,7 @@ class OnlineSearchDock(QtGui.QDockWidget):
     def __init__(self, parent = None):
         QtGui.QDockWidget.__init__(self, parent)
         self.setWidget(OnlineSearch())
-        self.setWindowTitle("+")
+        self.setWindowTitle("Add New Series")
         self.setFeatures(QtGui.QDockWidget.DockWidgetMovable | QtGui.QDockWidget.DockWidgetFloatable)
 
         
@@ -473,7 +510,7 @@ class ModelFiller(QtCore.QThread):
         self.series = series
         self.view = view
 
-        self.model.set_generator(imdbhelper.get_episodes(movie) )
+        self.model.set_generator(imdbwrapper.get_episodes(movie) )
 
     def run(self):     
         self.episode_counter = 0
@@ -481,7 +518,7 @@ class ModelFiller(QtCore.QThread):
         # Make the progress bar idle
         self.waiting.emit()
         self.view.seriesinfo.load_information(self.series)
-        imdbhelper.get_more_information(self.series, self.movie)
+        imdbwrapper.get_more_information(self.series, self.movie)
         self.view.seriesinfo.load_information(self.series)
         self.insert_into_tree.emit(self.series)
 
@@ -552,7 +589,6 @@ class MainWindow(QtGui.QMainWindow):
         #initalize the status bar
         statusbar = QtGui.QStatusBar()
         statusbar.showMessage("Ready")
-        statusbar.setSizeGripEnabled(False)
         self.setStatusBar(statusbar)
         
         # Initialize the progress bar and assign to the statusbar
@@ -577,7 +613,7 @@ class MainWindow(QtGui.QMainWindow):
         series_info_dock = SeriesInformationDock()
         self.seriesinfo =  series_info_dock.seriesinfo
         
-        self.setDockOptions(QtGui.QMainWindow.AnimatedDocks | QtGui.QMainWindow.ForceTabbedDocks)        
+        # Manage the docs        
         self.addDockWidget(Qt.LeftDockWidgetArea, online_search_dock)
         self.addDockWidget(Qt.LeftDockWidgetArea, local_search_dock)
         self.tabifyDockWidget(local_search_dock, online_search_dock)                    
@@ -588,16 +624,38 @@ class MainWindow(QtGui.QMainWindow):
        
         self.online_search.onlinesearchbutton.clicked.connect(self.search, Qt.QueuedConnection)
         self.online_search.onlineserieslist.itemSelectionChanged.connect(self.load_into_table, Qt.QueuedConnection)          
-        self.local_search.localseriestree.selectionModel().selectionChanged.connect(self.load_into_local_table)        
+        self.local_search.localseriestree.selectionModel().selectionChanged.connect(self.load_into_local_table) 
+        
+        self.seriesinfo.delete_button.clicked.connect(self.delete_series)       
         
         self.load_all_series_into_their_table()
         self.tableview.setModel(None)
         
-        self.setWindowTitle("Series Organizer")
+        self.setWindowTitle("Diribeo")
         self.resize_to_percentage(66)
         self.center()
-
-    
+        
+        
+    def delete_series(self):
+        series = self.existing_series       
+        
+        # Make sure that you're actually deleting a series
+        if series is not None:
+            # Deletes the item in the tree widget
+            self.local_search.remove_series(series)
+            
+            # Delete the series in the series_list
+            for i, available_series in enumerate(series_list):
+                if series == available_series:
+                    del series_list[i]       
+            
+            # Delete the series's tablemodel
+            del active_table_models[series] 
+            
+            self.tableview.setModel(None)
+            
+            save_series()
+        
     def center(self):
         screen = QtGui.QDesktopWidget().screenGeometry()
         size =  self.geometry()
@@ -614,35 +672,37 @@ class MainWindow(QtGui.QMainWindow):
             self.search()    
 
     def load_into_local_table(self):
-        index = self.local_search.localseriestree.selectionModel().currentIndex()
-        parent = index
+        parent = self.local_search.localseriestree.selectionModel().currentIndex()
         indextrace = [] 
 
         while(parent.isValid() and parent.parent().isValid()): 
             parent = parent.parent()
             indextrace.append(parent)
 
-        existing_series = self.existing_series = self.local_search.localseriestree.selectedItems()[0].series        
+        selected_items = self.local_search.localseriestree.selectedItems()
+        
+        if len(selected_items) > 0:
+            existing_series = self.existing_series = selected_items[0].series                
 
-        self.load_existing_series_into_table(existing_series)
-        load_info = existing_series        
-
-        if len(indextrace) == 0:
-            #clicked on a series
-            goto_row = 0            
-        elif len(indextrace) == 1:
-            #clicked on a season            
-            goto_row = existing_series.accumulate_episode_count(index.row()-1)            
-        else:
-            #clicked on an episode            
-            goto_row = existing_series.accumulate_episode_count(index.parent().row()-1) + index.row()             
-            load_info = existing_series[goto_row]
-
-        goto_index = activemodels[existing_series].index(goto_row, 0)
-
-        self.seriesinfo.load_information(load_info)
-
-        self.tableview.scrollTo(goto_index, QtGui.QAbstractItemView.PositionAtTop)
+            self.load_existing_series_into_table(existing_series)
+            load_info = existing_series        
+    
+            if len(indextrace) == 0:
+                #clicked on a series
+                goto_row = 0            
+            elif len(indextrace) == 1:
+                #clicked on a season            
+                goto_row = existing_series.accumulate_episode_count(index.row()-1)            
+            else:
+                #clicked on an episode            
+                goto_row = existing_series.accumulate_episode_count(index.parent().row()-1) + index.row()             
+                load_info = existing_series[goto_row]
+    
+            goto_index = active_table_models[existing_series].index(goto_row, 0)
+    
+            self.seriesinfo.load_information(load_info)
+    
+            self.tableview.scrollTo(goto_index, QtGui.QAbstractItemView.PositionAtTop)
 
     def load_episode_information_at_index(self, index, previous):
         #if previous.isValid():
@@ -654,10 +714,10 @@ class MainWindow(QtGui.QMainWindow):
 
     def load_existing_series_into_table(self, series):
         try:
-            self.tableview.setModel(activemodels[series]) 
+            self.tableview.setModel(active_table_models[series]) 
             self.tableview.selectionModel().currentRowChanged.connect(self.load_episode_information_at_index)           
         except KeyError:                    
-            activemodels[series] = model = EpisodeTableModel(episodes = series.episodes)
+            active_table_models[series] = model = EpisodeTableModel(episodes = series.episodes)
             self.tableview.setModel(model)            
             
             
@@ -668,13 +728,15 @@ class MainWindow(QtGui.QMainWindow):
             item = self.online_search.onlineserieslist.selectedItems()[0]
             movie = item.movie 
             
-            existing_series = imdbhelper.get_series_from_movie(movie)
+            existing_series = imdbwrapper.get_series_from_movie(movie)
 
             if existing_series is None: 
                 current_series = Series(item.title)
                 series_list.append(current_series)
-                activemodels[current_series] = model = EpisodeTableModel()
+                active_table_models[current_series] = model = EpisodeTableModel()
                 self.tableview.setModel(model)
+                self.tableview.selectionModel().currentRowChanged.connect(self.load_episode_information_at_index)
+                
                 self.existing_series = current_series                
                 job = ModelFiller(model, current_series, self, movie = movie)
                 
@@ -688,9 +750,10 @@ class MainWindow(QtGui.QMainWindow):
                 job.start()                     
             else:
                 self.load_existing_series_into_table(existing_series)
-
-    
-                
+            
+            local_search_dock.raise_()   # Show local search dock 
+            
+          
     def search(self):
         if len(self.online_search.onlinesearchfield.text()) > 0:            
             self.seriessearcher.gather(self.online_search.onlineserieslist, self.online_search.onlinesearchfield)
@@ -725,6 +788,9 @@ def SeriesOrganizerDecoder(dct):
     if '__movieclip__' in dct:        
         return MovieClip(dct['filepath'], dct['identifier'], filesize = dct['filesize'], checksum = dct['checksum'])
     
+    if '__settings__' in dct:
+        return Settings() # TODO
+    
     return dct
 
 
@@ -741,11 +807,13 @@ class SeriesOrganizerEncoder(json.JSONEncoder):
             return { "__series__" : True, "title" : obj.title, "episodes" : obj.episodes, "identifier" : obj.identifier, "rating" : obj.rating,  "director" : obj.director, "genre" : obj.genre, "date" : obj.date}
 
         if isinstance(obj, MovieClip):
-            return { "__movieclip__" : True, "filepath" : obj.filepath, "filesize" : obj.filesize, "checksum" : obj.checksum, "identifier" : obj.identifier}
+            return { "__movieclip__" : True, "filepath" : obj.filepath, "filesize" : obj.filesize, "checksum" : obj.checksum, "identifier" : obj.identifier}        
+        
+        if isinstance(obj, Settings):
+            return { "__settings__" : True, "copy_movieclips" : obj.copy_associated_movieclips, "deployment_folder" : obj.deployment_folder, "thumbnail_creation" : obj.automatic_thumbnail_creation} 
         
         if isinstance(obj, QtCore.QString):
-            return unicode(obj)
-        
+            return unicode(obj)        
         
         return json.JSONEncoder.default(self, obj)
 
@@ -797,7 +865,6 @@ def get_color_shade(index, number_of_colors):
 
 class MovieClip(object):
     def __init__(self, filepath, identifier, filesize = None, checksum = None):
-        
         self.filepath = filepath
         self.identifier = identifier
         if checksum is None:
@@ -815,7 +882,6 @@ class MovieClip(object):
     def get_thumbnails(self):
         """ This function gathers the thumbnails and adds them to the dedicated thumnails list"""
         pass
-    
         
     def get_checksum(self):
         try:
@@ -833,8 +899,7 @@ class MovieClip(object):
     
             self.checksum = checksum.hexdigest()
             return self.checksum
-            
- 
+
     def merge(self, other):
         """ This function merges the current movie clip object with another one.
         The current movie clip will be updated.
@@ -869,7 +934,7 @@ class MovieClip(object):
     def __repr__(self):
         return "M(" + self.filepath + ")"
     
-class IMDBHelper(object):
+class IMDBWrapper(object):
     def __init__(self):
         #Import the imdb package.
         import imdb
@@ -923,10 +988,10 @@ class IMDBHelper(object):
     def get_more_information(self, series, movie):
         self.ia.update(movie)
         series.identifier = {"imdb" : movie.movieID}
-        series.rating = {"imdb" : [movie["rating"], movie["votes"]]}
-        series.director = "\n".join(person['name'] for person in movie["director"])
-        series.genre = "\n".join(movie["genre"])
-        series.date = movie['year']
+        series.rating = {"imdb" : [movie.get("rating"), movie.get("votes")]}
+        series.director = "\n".join(person['name'] for person in movie.get("director"))
+        series.genre = "\n".join(movie.get("genre"))
+        series.date = movie.get('year')
 
 
     def search_movie(self, title): 
@@ -936,7 +1001,7 @@ class IMDBHelper(object):
         # filter out unwanted movies:
         for movie in query:
             if movie.get('kind') == "tv series":
-                output.append(SeriesWidgetItem(movie, movie.get('long imdb title')))
+                output.append(SeriesWidgetItem(movie, movie.get('smart long imdb canonical title')))
 
         return output
 
@@ -1133,6 +1198,13 @@ def save_series():
 def save_movieclips():
     save_file("movieclips.json", movieclip_dict)
 
+def load_settings():
+    return load_file("settings.json", {})
+
+def save_settings():
+    save_file("settings.json", settings)
+
+
 def save_file(filename, contents):
     with open(filename, "w") as f:
         f.write(json.dumps(contents, sort_keys = True, indent = 4, cls = SeriesOrganizerEncoder, encoding = "utf-8"))
@@ -1154,12 +1226,13 @@ def load_file(filename, default_value):
 if __name__ == "__main__":
 
     app = QtGui.QApplication(sys.argv)
-    imdbhelper = IMDBHelper()    
-
-    activemodels = {}    
+    
+    imdbwrapper = IMDBWrapper()
+    active_table_models = {}    
     jobs = []
     series_list = load_series()
     movieclip_dict = load_movieclips()
+    settings = load_settings()
 
     mainwindow = MainWindow()
     mainwindow.show()
