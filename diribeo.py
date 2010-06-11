@@ -95,7 +95,7 @@ class EpisodeTableModel(QtCore.QAbstractTableModel):
         return True  
 
 class OnlineSearch(QtGui.QFrame):
-    def __init__(self, parent=None):
+    def __init__(self, parent = None):
         QtGui.QFrame.__init__(self, parent)
 
         self.setFrameShape(QtGui.QFrame.StyledPanel)
@@ -145,6 +145,8 @@ class LocalSearch(QtGui.QFrame):
 
         localframelayout.addLayout(localsearchgrid)
         localframelayout.addWidget(self.localseriestree)
+        
+        self.toplevel_items = []
 
     def remove_series(self, series):        
         count = self.localseriestree.topLevelItemCount()
@@ -160,6 +162,7 @@ class LocalSearch(QtGui.QFrame):
     def insert_top_level_item(self, series):
         item = QtGui.QTreeWidgetItem([series.title])
         item.series = series        
+        self.toplevel_items.append(item)
         self.localseriestree.addTopLevelItem(item)
         self.localseriestree.setCurrentItem(item)
         self.sort_tree()
@@ -328,12 +331,14 @@ class SeriesInformationWidget(QtGui.QWidget):
     def clear_all_info(self):
         self.title.setText(self.default)
         self.rating.setText(self.default)
-        self.plot.setText(self.default)
+        #self.plot.setText(self.default)
         self.genre.setText(self.default)
-        self.director.setText(self.default)        
+        self.director.setText(self.default)  
+            
 
     def load_information(self, movie):
         self.clear_all_info()
+        
         
         self.movie = movie
         
@@ -510,9 +515,10 @@ class ModelFiller(QtCore.QThread):
         self.series = series
         self.view = view
 
-        self.model.set_generator(imdbwrapper.get_episodes(movie) )
+        self.model.set_generator(imdbwrapper.get_episodes(movie))
 
-    def run(self):     
+    def run(self): 
+                    
         self.episode_counter = 0
 
         # Make the progress bar idle
@@ -520,7 +526,8 @@ class ModelFiller(QtCore.QThread):
         self.view.seriesinfo.load_information(self.series)
         imdbwrapper.get_more_information(self.series, self.movie)
         self.view.seriesinfo.load_information(self.series)
-        self.insert_into_tree.emit(self.series)
+        self.insert_into_tree.emit(self.series)        
+
 
         for episode, episodenumber in self.model.generator:            
             self.model.episodes.append(episode)
@@ -602,7 +609,7 @@ class MainWindow(QtGui.QMainWindow):
         self.addToolBar(ToolBar())
         
         # Initialize local search
-        local_search_dock = LocalSearchDock()
+        local_search_dock = self.local_search_dock = LocalSearchDock()
         self.local_search = local_search_dock.widget()
         
         # Initialize online search
@@ -672,7 +679,8 @@ class MainWindow(QtGui.QMainWindow):
             self.search()    
 
     def load_into_local_table(self):
-        parent = self.local_search.localseriestree.selectionModel().currentIndex()
+        index = self.local_search.localseriestree.selectionModel().currentIndex()
+        parent = index
         indextrace = [] 
 
         while(parent.isValid() and parent.parent().isValid()): 
@@ -746,12 +754,13 @@ class MainWindow(QtGui.QMainWindow):
                 job.update_tree.connect(self.local_search.update_tree, type = QtCore.Qt.QueuedConnection)
                 job.insert_into_tree.connect(self.local_search.insert_top_level_item, type = QtCore.Qt.QueuedConnection)
 
-                jobs.append(job) 
-                job.start()                     
+                jobs.append(job)
+                job.start()
+                                  
             else:
                 self.load_existing_series_into_table(existing_series)
             
-            local_search_dock.raise_()   # Show local search dock 
+            self.local_search_dock.raise_()   # Show local search dock 
             
           
     def search(self):
