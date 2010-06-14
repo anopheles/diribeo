@@ -231,6 +231,7 @@ class SeriesInformationCategory(QtGui.QWidget):
         self.layout = QtGui.QVBoxLayout()
         self.setLayout(self.layout)
         self.spacing = spacing
+        self.default = default
         self.title_label = QtGui.QLabel(label_name)
         default_font = self.title_label.font()
         default_font.setBold(True)       
@@ -247,8 +248,14 @@ class SeriesInformationCategory(QtGui.QWidget):
         
         
     def setText(self, text):
+        if text == None or text == "":
+            text = self.default
+            
         self.set_content(text)
 
+
+    def reset(self):
+        self.set_content(self.default)
 
 
 class SeriesInformationWidget(QtGui.QWidget):
@@ -290,14 +297,12 @@ class SeriesInformationWidget(QtGui.QWidget):
         self.setAcceptDrops(True)
     
     def clear_all_info(self):
-        self.title.setText(self.default)
-        self.rating.setText(self.default)
-        self.genre.setText(self.default)
-        self.director.setText(self.default)  
+        self.rating.reset()
+        self.genre.reset()
+        self.director.reset()  
             
 
-    def load_information(self, movie):
-        #self.clear_all_info()        
+    def load_information(self, movie):             
         
         self.movie = movie
         
@@ -305,6 +310,7 @@ class SeriesInformationWidget(QtGui.QWidget):
             self.delete_button.setVisible(True)
             self.plot.setVisible(False)
         else:
+            self.rating.setText(movie.get_ratings())
             self.plot.setText(str(movie.plot))
             self.plot.setVisible(True)
             self.delete_button.setVisible(False)
@@ -314,32 +320,12 @@ class SeriesInformationWidget(QtGui.QWidget):
             self.title.setText(movie.series + " - " + movie.title + " - " + movie.get_descriptor())
         except AttributeError:
             self.title.setText(movie.title)
-        
-        # Handle the ratings
-        try:
-            self.rating.setText(str(movie.rating["imdb"][0]) + " (" + str(movie.rating["imdb"][1]) + " votes)")
-        except TypeError:
-            pass
-        
+            
+        self.director.setText(movie.director) 
+        self.airdate.setText(str(movie.date))
+        self.genre.setText(movie.genre)
+        self.movieclipwidget.content.load_movieclips(movie.get_movieclips())               
 
-        
-        # Handle the director
-        self.director.setText(self.default_text(movie.director))
-        
-        # Handle the movie date
-        self.airdate.setText(self.default_text(str(movie.date)))
-        
-        # Handle the genre
-        self.genre.setText(self.default_text(movie.genre))
-        
-        # Handle the movie clips        
-        self.movieclipwidget.content.load_movieclips(movie.get_movieclips())
-                
-
-    def default_text(self, text):
-        if text == None or text == "":
-            text = self.default
-        return text
         
     def dragEnterEvent(self, event):
         event.acceptProposedAction()
@@ -1177,7 +1163,11 @@ class Episode(object):
         # Use the first key as unique identifier. Note that this is propably not a good idea!
         return self.identifier.keys()[0] + self.identifier[self.identifier.keys()[0]]
         
-
+    def get_ratings(self):
+        return_text = ""
+        for rating in self.rating:
+            return_text = str(rating).upper() + ": " + str(self.rating[rating][0]) + " (" + str(self.rating[rating][1]) + ")\n"
+        return return_text 
 
 
 class Settings(object):
