@@ -132,6 +132,12 @@ class LocalSearch(QtGui.QFrame):
         
         self.toplevel_items = []
 
+    def sort_tree(self):
+        # This also sorts children which produces a unwanted sorting
+        pass
+        #self.localseriestree.sortItems(0, Qt.AscendingOrder)
+
+
     def remove_series(self, series):        
         count = self.localseriestree.topLevelItemCount()
         for number in range(count):            
@@ -654,7 +660,7 @@ class MainWindow(QtGui.QMainWindow):
        
         #self.local_search_dock.selection_finished.connect(None)
         self.local_search_dock.wizard.selection_finished.connect(self.load_items_into_table)
-        self.local_search.localseriestree.selectionModel().selectionChanged.connect(self.load_into_local_table)         
+        self.local_search.localseriestree.itemClicked.connect(self.load_into_local_table)         
         self.seriesinfo.delete_button.clicked.connect(self.delete_series)       
         
         self.load_all_series_into_their_table()
