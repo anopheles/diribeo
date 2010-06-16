@@ -11,6 +11,7 @@ import sys
 import os
 import hashlib
 import logging
+import shutil
 
 from PyQt4 import QtGui
 from PyQt4 import QtCore
@@ -181,13 +182,16 @@ class LocalSearch(QtGui.QFrame):
 
 
 class MovieClipInformationWidget(QtGui.QFrame):
-    def __init__(self, movieclip, parent = None):
+    def __init__(self, movieclip, movie, parent = None):
         QtGui.QFrame.__init__(self, parent)
         self.boxlayout = QtGui.QVBoxLayout()
         self.setLayout(self.boxlayout)
         self.setFrameShape(QtGui.QFrame.StyledPanel)
         
-        self.title = QtGui.QLabel("")
+        if not movieclip.is_available(movie.series):
+            self.setStyleSheet("color:red")
+                    
+        self.title = QtGui.QLabel()
         
         self.boxlayout.addWidget(QtGui.QLabel("Filename"))
         self.boxlayout.addWidget(self.title)
@@ -195,7 +199,7 @@ class MovieClipInformationWidget(QtGui.QFrame):
         self.load_information(movieclip)
         
     def load_information(self, movieclip):
-        self.title.setText(os.path.basename(movieclip.filepath))
+        self.title.setText(movieclip.filename)
         
 
 class MovieClipOverviewWidget(QtGui.QWidget):
@@ -208,14 +212,18 @@ class MovieClipOverviewWidget(QtGui.QWidget):
         self.vbox.addWidget(self.draghere_label)
       
     
-    def load_movieclips(self, movieclips):
+    def load_movieclips(self, movie):
+        
         self.remove_old_entries()
         assert len(self.movieclipinfos) == 0
+                
+        movieclips =  movie.get_movieclips()
+        
         if movieclips != None and len(movieclips) > 0:
             self.draghere_label.setVisible(False)
             if movieclips != None:
                 for movieclip in movieclips:
-                    info_item = MovieClipInformationWidget(movieclip)
+                    info_item = MovieClipInformationWidget(movieclip, movie)
                     self.movieclipinfos.append(info_item)
                     self.vbox.addWidget(info_item)
         else:
@@ -275,6 +283,10 @@ class SeriesInformationControls(QtGui.QWidget):
         self.setLayout(header_layout)
 
 class SeriesInformationWidget(QtGui.QWidget):
+    
+    finished_movieclip_processing = QtCore.pyqtSignal()
+    waiting_for_movieclip_processing = QtCore.pyqtSignal()
+    
     def __init__(self, parent = None):
         QtGui.QWidget.__init__(self, parent)        
         
@@ -352,7 +364,7 @@ class SeriesInformationWidget(QtGui.QWidget):
         self.director.setText(movie.director) 
         self.airdate.setText(str(movie.date))
         self.genre.setText(movie.genre)
-        self.movieclipwidget.content.load_movieclips(movie.get_movieclips())          
+        self.movieclipwidget.content.load_movieclips(movie)          
 
         
     def dragEnterEvent(self, event):
@@ -365,8 +377,12 @@ class SeriesInformationWidget(QtGui.QWidget):
         try:
             filepath = event.mimeData().urls()[0].toLocalFile()
             job = MovieClipAssociator(filepath, self.movie)
+                        
+            job.waiting.connect(self.waiting_for_movieclip_processing)
+            job.finished.connect(self.finished_movieclip_processing)
+                                    
             job.finished.connect(self.load_information)
-            job.already_exists.connect(self.already_exists_warning)
+            job.already_exists.connect(self.already_exists_warning)            
             job.filesystem_error.connect(self.filesystem_error_warning)
             jobs.append(job)
             job.start()
@@ -374,6 +390,10 @@ class SeriesInformationWidget(QtGui.QWidget):
         except AttributeError:
             pass
         event.accept()        
+
+    def bla(self):
+        print "tessting"
+
 
     def already_exists_warning(self, movie, filepath):
         messagebox = QtGui.QMessageBox(QtGui.QMessageBox.Warning, "Movie Clip already associated.", "")
@@ -395,6 +415,7 @@ class SeriesInformationWidget(QtGui.QWidget):
 class MovieClipAssociator(QtCore.QThread):
     
     finished = QtCore.pyqtSignal("PyQt_PyObject")
+    waiting = QtCore.pyqtSignal()
     already_exists = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject")
     filesystem_error = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject")
     
@@ -406,14 +427,34 @@ class MovieClipAssociator(QtCore.QThread):
     def run(self):
         key = self.movie.get_identifier()
         
-        if os.path.isfile(self.filepath) == False:
+        if os.path.isfile(self.filepath) == False or not settings.is_valid_file(self.filepath):
             self.filesystem_error.emit(self.movie, self.filepath)
         else:
+            self.waiting.emit()
+            
+            # Create deployment folder
+            settings.create_deployment_folder()
+            
             clip = MovieClip(self.filepath, self.movie.identifier)
+            
+            # Build folder structure
+            series_folder = os.path.join(settings.deployment_folder, self.movie.series)
+            if not os.path.exists(series_folder):
+                os.makedirs(series_folder)                        
+                        
+            destination = os.path.join(series_folder, os.path.basename(self.filepath))
+            
+            # Copy movie clip
+            if settings.copy_associated_movieclips:                
+                shutil.copyfile(self.filepath, destination)
+            else:
+                shutil.move(self.filepath, destination)
+            
             add = True
             for identifier in movieclip_dict:
                 if clip in movieclip_dict[identifier]:
                     self.already_exists.emit(self.movie, self.filepath)
+                    self.finished.emit(self.movie)
                     add = False
 
             if add is True:
@@ -595,7 +636,7 @@ class SeriesProgressbar(QtGui.QProgressBar):
         self.setMinimum(0)
         self.setMaximum(0)  
 
-    def reset(self):        
+    def stop(self):     
         self.setValue(-1)
         self.setMinimum(0)
         self.setMaximum(1)
@@ -613,7 +654,7 @@ class SeriesProgressbar(QtGui.QProgressBar):
             # Thread has already been deleted
             pass
         if len(self.workers) == 0:
-            self.reset()
+            self.stop()
             self.timer.stop()
 
     def update_bar(self, thread, current, maximum):        
@@ -658,20 +699,20 @@ class MainWindow(QtGui.QMainWindow):
         self.addDockWidget(Qt.LeftDockWidgetArea, local_search_dock)                            
         self.addDockWidget(Qt.RightDockWidgetArea, series_info_dock)
        
-        #self.local_search_dock.selection_finished.connect(None)
         self.local_search_dock.wizard.selection_finished.connect(self.load_items_into_table)
         self.local_search.localseriestree.itemClicked.connect(self.load_into_local_table)         
-        self.seriesinfo.delete_button.clicked.connect(self.delete_series)       
+        self.seriesinfo.delete_button.clicked.connect(self.delete_series)
+        
+        self.seriesinfo.waiting_for_movieclip_processing.connect(self.progressbar.waiting)        
+        self.seriesinfo.finished_movieclip_processing.connect(self.progressbar.stop)
         
         self.load_all_series_into_their_table()
-        
         
         self.tableview.setModel(None)
         
         self.setWindowTitle("Diribeo")
         self.resize_to_percentage(66)
         self.center()
-        
         
     def delete_series(self):                
         series = self.existing_series       
@@ -817,7 +858,7 @@ def SeriesOrganizerDecoder(dct):
         return Series(dct["title"], identifier = dct["identifier"], episodes = dct["episodes"], rating = dct["rating"], director = dct["director"], genre = dct["genre"], date = dct["date"])
 
     if '__movieclip__' in dct:        
-        return MovieClip(dct['filepath'], dct['identifier'], filesize = dct['filesize'], checksum = dct['checksum'])
+        return MovieClip(None, dct['identifier'], filename = dct['filename'], filesize = dct['filesize'], checksum = dct['checksum'])
     
     if '__settings__' in dct:
         return Settings(copy_associated_movieclips = dct['copy_movieclips'], deployment_folder =  deployment_folder, automatic_thumbnail_creation = dct['thumbnail_creation'])
@@ -838,7 +879,7 @@ class SeriesOrganizerEncoder(json.JSONEncoder):
             return { "__series__" : True, "title" : obj.title, "episodes" : obj.episodes, "identifier" : obj.identifier, "rating" : obj.rating,  "director" : obj.director, "genre" : obj.genre, "date" : obj.date}
 
         if isinstance(obj, MovieClip):
-            return { "__movieclip__" : True, "filepath" : obj.filepath, "filesize" : obj.filesize, "checksum" : obj.checksum, "identifier" : obj.identifier}        
+            return { "__movieclip__" : True, "filename" : obj.filename, "filesize" : obj.filesize, "checksum" : obj.checksum, "identifier" : obj.identifier}        
         
         if isinstance(obj, Settings):
             return { "__settings__" : True, "copy_movieclips" : obj.copy_associated_movieclips, "deployment_folder" : obj.deployment_folder, "thumbnail_creation" : obj.automatic_thumbnail_creation} 
@@ -895,9 +936,16 @@ def get_color_shade(index, number_of_colors):
     return [QtGui.QColor.fromHsvF(colornumber/float(number_of_colors), 1, 0.9, 0.25) for colornumber in range(number_of_colors)][index % number_of_colors]
 
 class MovieClip(object):
-    def __init__(self, filepath, identifier, filesize = None, checksum = None):
+    def __init__(self, filepath, identifier, filename = None, filesize = None, checksum = None):
         self.filepath = filepath
+        
+        if filename == None:
+            self.filename = os.path.basename(filepath)
+        else:
+            self.filename = filename
+            
         self.identifier = identifier
+        
         if checksum is None:
             self.get_checksum()
         else:
@@ -954,6 +1002,12 @@ class MovieClip(object):
             self.filesize = os.path.getsize(self.filepath)
             return self.filesize
 
+
+    def is_available(self, series_name):        
+        filepath = os.path.join(settings.deployment_folder, series_name,self.filename)
+        
+        if os.path.exists(filepath):
+            return True
     
     def __eq__(self, other):
         if self.checksum == other.checksum:
@@ -1208,7 +1262,7 @@ class Settings(object):
             Note that this musn't be the execution directory of this application.
         '''
         if deployment_folder is None:
-            self.deployment_folder = os.path.join(self.get_user_dir,".diribeo")
+            self.deployment_folder = os.path.join(self.get_user_dir(),".diribeo")
         else:
             self.deployment_folder = deployment_folder
         
@@ -1230,6 +1284,15 @@ class Settings(object):
             os.makedirs(self.deployment_folder)
             
 
+    def is_valid_file(self, filepath):
+        filename = os.path.basename(filepath)
+        name, ext = os.path.splitext(filename)
+        
+        if ext[1:].lower() in ("mkv", "avi", "mpgeg", "mpg"):
+            return True
+        
+
+
 def load_series():
     return load_file("series.json", [])    
     
@@ -1243,7 +1306,7 @@ def save_movieclips():
     save_file("movieclips.json", movieclip_dict)
 
 def load_settings():
-    return load_file("settings.json", {})
+    return load_file("settings.json", Settings())
 
 def save_settings():
     save_file("settings.json", settings)
