@@ -137,8 +137,11 @@ class LocalSearch(QtGui.QFrame):
         for number in range(count):            
             item = self.localseriestree.topLevelItem(number)
             if item.series == series:
-                delete_item = item                    
+                delete_item = item
+                
         self.localseriestree.removeItemWidget(delete_item, 0)
+        self.localseriestree.takeTopLevelItem(self.localseriestree.indexOfTopLevelItem(delete_item))
+        
 
     def sort_tree(self):
         self.localseriestree.sortItems(0, Qt.AscendingOrder)
@@ -246,6 +249,8 @@ class SeriesInformationCategory(QtGui.QWidget):
     def set_content(self, input):
         self.content.setText(input)
         
+    def set_description(self, input):
+        self.title_label.setText(input)
         
     def setText(self, text):
         if text == None or text == "":
@@ -258,73 +263,95 @@ class SeriesInformationCategory(QtGui.QWidget):
         self.set_content(self.default)
 
 
-class SeriesInformationWidget(QtGui.QWidget):
+class SeriesInformationControls(QtGui.QWidget):
     def __init__(self, parent = None):
         QtGui.QWidget.__init__(self, parent)
+        header_layout = QtGui.QHBoxLayout()    
+        self.update_button = QtGui.QPushButton("Update")
+        self.delete_button = QtGui.QPushButton("Delete")
+        header_layout.addWidget(self.delete_button)
+        header_layout.addWidget(self.update_button)
+        self.setLayout(header_layout)
+
+class SeriesInformationWidget(QtGui.QWidget):
+    def __init__(self, parent = None):
+        QtGui.QWidget.__init__(self, parent)        
         
-        
-        layout = QtGui.QVBoxLayout(self)
+        self.layout = layout = QtGui.QVBoxLayout()
+        self.setLayout(layout)              
         layout.setSizeConstraint(QtGui.QLayout.SetFixedSize)
-        self.setLayout(layout)
-        
+           
+        self.nothing_to_see_here = QtGui.QLabel("There's nothing to see here")
         self.seenit = SeriesInformationCategory("Seen it?", type = QtGui.QCheckBox)
+        self.title = SeriesInformationCategory("Title", type = SeriesInformationControls)
         self.movieclipwidget = SeriesInformationCategory("Movie Clips", type = MovieClipOverviewWidget)        
         self.director = SeriesInformationCategory("Director")
         self.rating = SeriesInformationCategory("Ratings")
         self.airdate = SeriesInformationCategory("Airdate")
         self.plot = SeriesInformationCategory("Plot", type = QtGui.QTextEdit)
-        self.genre = SeriesInformationCategory("Genre") 
+        self.genre = SeriesInformationCategory("Genre")
         
+        self.main_widgets = [self.title, self.seenit, self.movieclipwidget, self.director, self.rating, self.airdate, self.plot, self.genre]
         
-        self.header_layout = QtGui.QHBoxLayout()
-        self.title = QtGui.QLabel()        
-        self.update_button = QtGui.QPushButton("Update")
-        self.delete_button = QtGui.QPushButton("Delete")
-        self.header_layout.addWidget(self.delete_button)
-        self.header_layout.addWidget(self.update_button)
-        layout.addWidget(self.title)
-        layout.addLayout(self.header_layout)
-        layout.addSpacing(25)
+        for widget in self.main_widgets:
+            layout.addWidget(widget)
+            
+        self.nothing_to_see_here.hide()
+        layout.addWidget(self.nothing_to_see_here)
         
-        layout.addWidget(self.movieclipwidget)
-        layout.addWidget(self.seenit)
-        layout.addWidget(self.director)
-        layout.addWidget(self.rating)
-        layout.addWidget(self.airdate)
-        layout.addWidget(self.plot)
-        layout.addWidget(self.genre)
+        self.delete_button = self.title.content.delete_button
+        self.update_button = self.title.content.update_button
+        
+        self.show_main_widget(False)
         
         self.setAcceptDrops(True)
-    
-    def clear_all_info(self):
-        self.rating.reset()
-        self.genre.reset()
-        self.director.reset()  
-            
 
-    def load_information(self, movie):             
-        
+    def main_widget_set_visibility(self, show):
+        if show:
+            for widget in self.main_widgets:
+                widget.show() 
+        else:
+            for widget in self.main_widgets:
+                widget.hide() 
+                       
+    def show_main_widget(self, show):
+        if show:
+            self.main_widget_set_visibility(True)
+            self.nothing_to_see_here.hide()
+        else:
+            self.main_widget_set_visibility(False)
+            self.nothing_to_see_here.show()
+
+ 
+    def clear_all_info(self):
+        self.show_main_widget(False)
+
+    def load_information(self, movie):
         self.movie = movie
+        
+        self.show_main_widget(True)
         
         if isinstance(self.movie, Series):
             self.delete_button.setVisible(True)
             self.plot.setVisible(False)
+            self.rating.setVisible(False)
         else:
-            self.rating.setText(movie.get_ratings())
+            self.rating.setVisible(True)
+            self.rating.setText(movie.get_ratings()) 
             self.plot.setText(str(movie.plot))
             self.plot.setVisible(True)
             self.delete_button.setVisible(False)
         
         # Handle the title
         try:
-            self.title.setText(movie.series + " - " + movie.title + " - " + movie.get_descriptor())
+            self.title.set_description(movie.series + " - " + movie.title + " - " + movie.get_descriptor())
         except AttributeError:
-            self.title.setText(movie.title)
-            
+            self.title.set_description(movie.title)
+        
         self.director.setText(movie.director) 
         self.airdate.setText(str(movie.date))
         self.genre.setText(movie.genre)
-        self.movieclipwidget.content.load_movieclips(movie.get_movieclips())               
+        self.movieclipwidget.content.load_movieclips(movie.get_movieclips())          
 
         
     def dragEnterEvent(self, event):
@@ -400,20 +427,12 @@ class MovieClipAssociator(QtCore.QThread):
 
 
             
-class EpisodeViewWidget(QtGui.QWidget):    
-    def __init__(self, parent=None):
-        QtGui.QWidget.__init__(self, parent)         
-        mainbox = QtGui.QVBoxLayout()
-        self.setLayout(mainbox)
-    
-        #init table view        
-        self.tableview = QtGui.QTableView(self) 
-        self.tableview.verticalHeader().setDefaultSectionSize(125)
-        self.tableview.horizontalHeader().setStretchLastSection(True)
-        self.tableview.setShowGrid(False)  
-
-        mainbox.addWidget(self.tableview)
-        self.setLayout(mainbox)
+class EpisodeViewWidget(QtGui.QTableView):    
+    def __init__(self, parent = None):
+        QtGui.QTableView.__init__(self, parent)
+        self.verticalHeader().setDefaultSectionSize(125)
+        self.horizontalHeader().setStretchLastSection(True)
+        self.setShowGrid(False)  
 
 
 
@@ -438,7 +457,8 @@ class LocalSearchDock(QtGui.QDockWidget):
         self.tab = QtGui.QTabWidget()
         self.tab.setTabPosition(QtGui.QTabWidget.South)
         self.tab.addTab(self.local_search, "Local Library")
-        self.tab.addTab(QtGui.QWidget(), "+")
+        self.dummywidget = QtGui.QWidget()
+        self.tab.addTab(self.dummywidget, QtGui.QIcon("images/plus.png"), "Add New Series")
         self.setWidget(self.tab)
         self.setFeatures(QtGui.QDockWidget.DockWidgetMovable | QtGui.QDockWidget.DockWidgetFloatable)
         
@@ -447,7 +467,7 @@ class LocalSearchDock(QtGui.QDockWidget):
         self.wizard = SeriesAdderWizard()
         
     def handle_tab_change(self, index):
-        if index == 1:
+        if index == self.tab.indexOf(self.dummywidget):
             self.tab.setCurrentWidget(self.local_search)
             self.wizard.restart()
             self.wizard.show()
@@ -606,10 +626,8 @@ class MainWindow(QtGui.QMainWindow):
 
         self.existing_series = None # stores the currently active series object
         
-        episode_table_widget = EpisodeViewWidget()        
-        self.setCentralWidget(episode_table_widget)
-        
-        self.tableview = episode_table_widget.tableview
+        self.tableview = EpisodeViewWidget()
+        self.setCentralWidget(self.tableview)
 
         #initalize the status bar
         statusbar = QtGui.QStatusBar()
@@ -631,11 +649,9 @@ class MainWindow(QtGui.QMainWindow):
         local_search_dock = self.local_search_dock = LocalSearchDock()
         self.local_search = local_search_dock.local_search
         
-        
         # Initialize online search
         series_info_dock = SeriesInformationDock()
         self.seriesinfo =  series_info_dock.seriesinfo
-        
         
         # Manage the docs
         self.addDockWidget(Qt.LeftDockWidgetArea, local_search_dock)                            
@@ -647,6 +663,8 @@ class MainWindow(QtGui.QMainWindow):
         self.seriesinfo.delete_button.clicked.connect(self.delete_series)       
         
         self.load_all_series_into_their_table()
+        
+        
         self.tableview.setModel(None)
         
         self.setWindowTitle("Diribeo")
@@ -654,8 +672,7 @@ class MainWindow(QtGui.QMainWindow):
         self.center()
         
         
-    def delete_series(self):
-        #TODO this doesn't work on series which have been downloaded in the current session        
+    def delete_series(self):                
         series = self.existing_series       
         
         # Make sure that you're actually deleting a series
@@ -667,11 +684,14 @@ class MainWindow(QtGui.QMainWindow):
             for i, available_series in enumerate(series_list):
                 if series == available_series:
                     del series_list[i]       
-            
+                    
             # Delete the series's tablemodel
             del active_table_models[series] 
             
             self.tableview.setModel(None)
+            
+            # Clear all information in the series information widget
+            self.seriesinfo.clear_all_info()
             
             save_series()
         
@@ -730,7 +750,7 @@ class MainWindow(QtGui.QMainWindow):
     def load_existing_series_into_table(self, series):
         try:
             self.tableview.setModel(active_table_models[series]) 
-            self.tableview.selectionModel().currentRowChanged.connect(self.load_episode_information_at_index)           
+            self.tableview.selectionModel().currentChanged.connect(self.load_episode_information_at_index)
         except KeyError:                    
             active_table_models[series] = model = EpisodeTableModel(episodes = series.episodes)
             self.tableview.setModel(model)            
@@ -739,11 +759,12 @@ class MainWindow(QtGui.QMainWindow):
     def load_items_into_table(self, items):
         """ Loads the selected episodes from the clicked series in the onlineserieslist """
         
+        assert len(items) == 1 # Make sure only one item is passed to this function since there are conurrency problems        
+        
         for item in items:           
             movie = item.movie
 
-            existing_series = imdbwrapper.get_series_from_movie(movie)
-            
+            existing_series = imdbwrapper.get_series_from_movie(movie)            
             
             if existing_series is None: 
                 current_series = Series(item.title)
@@ -798,7 +819,7 @@ def SeriesOrganizerDecoder(dct):
         return MovieClip(dct['filepath'], dct['identifier'], filesize = dct['filesize'], checksum = dct['checksum'])
     
     if '__settings__' in dct:
-        return Settings() # TODO
+        return Settings(copy_associated_movieclips = dct['copy_movieclips'], deployment_folder =  deployment_folder, automatic_thumbnail_creation = dct['thumbnail_creation'])
     
     return dct
 
@@ -991,14 +1012,17 @@ class IMDBWrapper(object):
                     episode = Episode(title = imdb_episode.get('title'), descriptor = [imdb_episode.get('season'), imdb_episode.get('episode')], series = imdb_series.get('title'), date = imdb_episode.get('original air date'), plot = imdb_episode.get('plot'), identifier = {"imdb" : imdb_episode.movieID}, rating = {"imdb" : self.get_rating(ratings, imdb_episode)})
                     yield episode, numberofepisodes
 
-        return 
+        return
 
 
     def get_more_information(self, series, movie):
         self.ia.update(movie)
         series.identifier = {"imdb" : movie.movieID}
         series.rating = {"imdb" : [movie.get("rating"), movie.get("votes")]}
-        series.director = "\n".join(person['name'] for person in movie.get("director"))
+        try:
+            series.director = "\n".join(person['name'] for person in movie.get("director"))
+        except TypeError:
+            pass
         series.genre = "\n".join(movie.get("genre"))
         series.date = movie.get('year')
 
@@ -1171,24 +1195,27 @@ class Episode(object):
 
 
 class Settings(object):
-    def __init__(self):    
+    def __init__(self, copy_associated_movieclips = True, deployment_folder = None, automatic_thumbnail_creation = False):    
 
         ''' Defines if newly assigned movieclips are copied into their respective directory structure.
             If this property is false this implies that the original file is moved instead of copied.     
         '''
-        self.copy_associated_movieclips = True
+        self.copy_associated_movieclips = copy_associated_movieclips
         
         
         ''' Defines the folder in which all importan information is saved conserning this application.
             Note that this musn't be the execution directory of this application.
         '''
-        self.deployment_folder = os.path.join(self.get_user_dir,".diribeo")
+        if deployment_folder is None:
+            self.deployment_folder = os.path.join(self.get_user_dir,".diribeo")
+        else:
+            self.deployment_folder = deployment_folder
         
         
         ''' Specifies if thumbnails should be created as soon as the movie clip gets associated with an 
             episode or series
         '''       
-        self.automatic_thumbnail_creation = False        
+        self.automatic_thumbnail_creation = automatic_thumbnail_creation       
 
 
     def get_user_dir(self):
