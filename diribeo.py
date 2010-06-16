@@ -427,7 +427,7 @@ class MovieClipAssociator(QtCore.QThread):
     def run(self):
         key = self.movie.get_identifier()
         
-        if os.path.isfile(self.filepath) == False or not settings.is_valid_file(self.filepath):
+        if os.path.isfile(self.filepath) == False or not settings.is_valid_file_extension(self.filepath):
             self.filesystem_error.emit(self.movie, self.filepath)
         else:
             self.waiting.emit()
@@ -1284,7 +1284,7 @@ class Settings(object):
             os.makedirs(self.deployment_folder)
             
 
-    def is_valid_file(self, filepath):
+    def is_valid_file_extension(self, filepath):
         filename = os.path.basename(filepath)
         name, ext = os.path.splitext(filename)
         
