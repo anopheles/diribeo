@@ -66,7 +66,7 @@ class EpisodeTableModel(QtCore.QAbstractTableModel):
         return QtGui.QBrush(gradient)
 
     def flags(self, index):
-        return Qt.ItemIsEnabled
+        return Qt.ItemIsEnabled | Qt.ItemIsSelectable
 
     def headerData(self, section, orientation, role):
         if role == QtCore.Qt.DisplayRole:
@@ -474,7 +474,10 @@ class EpisodeViewWidget(QtGui.QTableView):
         QtGui.QTableView.__init__(self, parent)
         self.verticalHeader().setDefaultSectionSize(125)
         self.horizontalHeader().setStretchLastSection(True)
-        self.setShowGrid(False)  
+        self.setShowGrid(False) 
+        #palette = self.palette()
+        #palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor(128,128,128,200))        
+        #self.setPalette(palette)
 
 
 
@@ -781,9 +784,13 @@ class MainWindow(QtGui.QMainWindow):
     
             self.tableview.scrollTo(goto_index, QtGui.QAbstractItemView.PositionAtTop)
 
-    def load_episode_information_at_index(self, index, previous):
-        #if previous.isValid():
-        self.seriesinfo.load_information(self.existing_series[index.row()])
+    def load_episode_information_at_index(self, selected, deselected):
+        try:        
+            self.seriesinfo.load_information(self.existing_series[selected.indexes()[0].row()])
+            self.tableview.selectionModel().select(QtCore.QModelIndex(), QtGui.QItemSelectionModel.Clear)
+            #self.tableview.selectionModel().setCurrentIndex(QtCore.QModelIndex(), QtGui.QItemSelectionModel.Clear)
+        except IndexError:
+            pass
 
     def load_all_series_into_their_table(self):
         for series in series_list:
@@ -792,7 +799,7 @@ class MainWindow(QtGui.QMainWindow):
     def load_existing_series_into_table(self, series):
         try:
             self.tableview.setModel(active_table_models[series]) 
-            self.tableview.selectionModel().currentChanged.connect(self.load_episode_information_at_index)
+            self.tableview.selectionModel().selectionChanged.connect(self.load_episode_information_at_index)
         except KeyError:                    
             active_table_models[series] = model = EpisodeTableModel(episodes = series.episodes)
             self.tableview.setModel(model)            
