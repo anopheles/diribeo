@@ -141,10 +141,6 @@ class LocalSearch(QtGui.QFrame):
                 
         self.localseriestree.removeItemWidget(delete_item, 0)
         self.localseriestree.takeTopLevelItem(self.localseriestree.indexOfTopLevelItem(delete_item))
-        
-
-    def sort_tree(self):
-        self.localseriestree.sortItems(0, Qt.AscendingOrder)
 
     def insert_top_level_item(self, series):
         item = QtGui.QTreeWidgetItem([series.title])
@@ -171,7 +167,6 @@ class LocalSearch(QtGui.QFrame):
                 child_episode = QtGui.QTreeWidgetItem(child_season,[episode.title]) 
                 child_episode.series = parent_series.series
         self.localseriestree.addTopLevelItem(parent_series)
-        self.sort_tree()
 
     def update_tree(self, series):    
         for toplevelitem in self.toplevel_items:
