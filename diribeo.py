@@ -911,6 +911,51 @@ class SeriesOrganizerEncoder(json.JSONEncoder):
         return json.JSONEncoder.default(self, obj)
 
 
+
+class Settings(object):
+    def __init__(self, copy_associated_movieclips = True, deployment_folder = None, automatic_thumbnail_creation = False):
+
+        ''' Defines if newly assigned movieclips are copied into their respective directory structure.
+            If this property is false this implies that the original file is moved instead of copied.     
+        '''
+        self.copy_associated_movieclips = copy_associated_movieclips
+        
+        
+        ''' Defines the folder in which all importan information is saved conserning this application.
+            Note that this musn't be the execution directory of this application.
+        '''
+        if deployment_folder is None:
+            self.deployment_folder = os.path.join(self.get_user_dir(),".diribeo")
+        else:
+            self.deployment_folder = deployment_folder
+        
+        
+        ''' Specifies if thumbnails should be created as soon as the movie clip gets associated with an 
+            episode or series
+        '''       
+        self.automatic_thumbnail_creation = automatic_thumbnail_creation       
+
+
+    def get_user_dir(self):
+        ''' Returns the user/Home directory of the user running this application. '''        
+        return os.path.expanduser("~")
+        
+    
+    def create_deployment_folder(self):
+        ''' Creates the deployment folder if it doesn't exist '''
+        if not os.path.exists(self.deployment_folder):
+            os.makedirs(self.deployment_folder)
+            
+
+    def is_valid_file_extension(self, filepath):
+        filename = os.path.basename(filepath)
+        name, ext = os.path.splitext(filename)
+        
+        if ext[1:].lower() in ("mkv", "avi", "mpgeg", "mpg"):
+            return True
+
+
+
 def create_default_image(episode):
     multiplikator = 5
     width = 16 * multiplikator
@@ -1251,7 +1296,7 @@ class Episode(object):
         return self.title == other.title and self.descriptor == other.descriptor
 
     def get_descriptor(self):
-        return str(self.descriptor[0]) + " x " + str(self.descriptor[1])
+        return "S: " + str(self.descriptor[0]) + " E: " + str(self.descriptor[1])
 
     def get_movieclips(self):
         try:
@@ -1273,47 +1318,7 @@ class Episode(object):
         return return_text 
 
 
-class Settings(object):
-    def __init__(self, copy_associated_movieclips = True, deployment_folder = None, automatic_thumbnail_creation = False):    
 
-        ''' Defines if newly assigned movieclips are copied into their respective directory structure.
-            If this property is false this implies that the original file is moved instead of copied.     
-        '''
-        self.copy_associated_movieclips = copy_associated_movieclips
-        
-        
-        ''' Defines the folder in which all importan information is saved conserning this application.
-            Note that this musn't be the execution directory of this application.
-        '''
-        if deployment_folder is None:
-            self.deployment_folder = os.path.join(self.get_user_dir(),".diribeo")
-        else:
-            self.deployment_folder = deployment_folder
-        
-        
-        ''' Specifies if thumbnails should be created as soon as the movie clip gets associated with an 
-            episode or series
-        '''       
-        self.automatic_thumbnail_creation = automatic_thumbnail_creation       
-
-
-    def get_user_dir(self):
-        ''' Returns the user/Home directory of the user running this application. '''        
-        return os.path.expanduser("~")
-        
-    
-    def create_deployment_folder(self):
-        ''' Creates the deployment folder if it doesn't exist '''
-        if not os.path.exists(self.deployment_folder):
-            os.makedirs(self.deployment_folder)
-            
-
-    def is_valid_file_extension(self, filepath):
-        filename = os.path.basename(filepath)
-        name, ext = os.path.splitext(filename)
-        
-        if ext[1:].lower() in ("mkv", "avi", "mpgeg", "mpg"):
-            return True
         
 
 
