@@ -785,12 +785,26 @@ class MainWindow(QtGui.QMainWindow):
             self.tableview.scrollTo(goto_index, QtGui.QAbstractItemView.PositionAtTop)
 
     def load_episode_information_at_index(self, selected, deselected):
-        try:        
-            self.seriesinfo.load_information(self.existing_series[selected.indexes()[0].row()])
-            self.tableview.selectionModel().select(QtCore.QModelIndex(), QtGui.QItemSelectionModel.Clear)
-            #self.tableview.selectionModel().setCurrentIndex(QtCore.QModelIndex(), QtGui.QItemSelectionModel.Clear)
-        except IndexError:
-            pass
+        self.tableview.selectionModel().select(selected, QtGui.QItemSelectionModel.Deselect)
+        try:
+            index = selected.indexes()[0]
+            
+            same_row = False
+            try:
+                if self.last_selected_index.row() == index.row():
+                    same_row = True
+            except AttributeError:
+                pass
+            
+            if not same_row:
+                self.seriesinfo.load_information(self.existing_series[index.row()])
+                self.last_selected_index = index                 
+                #self.tableview.selectRow(index.row())          
+                #self.tableview.selectionModel().setCurrentIndex(QtCore.QModelIndex(), QtGui.QItemSelectionModel.Clear)
+  
+        except IndexError:  
+            pass  
+
 
     def load_all_series_into_their_table(self):
         for series in series_list:
@@ -1252,7 +1266,10 @@ class Episode(object):
     def get_ratings(self):
         return_text = ""
         for rating in self.rating:
-            return_text = str(rating).upper() + ": " + str(self.rating[rating][0]) + " (" + str(self.rating[rating][1]) + ")\n"
+            try:
+                return_text = str(rating).upper() + ": " + str(self.rating[rating][0]) + " (" + str(self.rating[rating][1]) + ")\n"
+            except TypeError:
+                pass
         return return_text 
 
 
