@@ -438,14 +438,14 @@ class MovieClipAssociator(QtCore.QThread):
             clip = MovieClip(self.filepath, self.movie.identifier)
             
             # Build folder structure
-            series_folder = os.path.join(settings.deployment_folder, self.movie.series)
+            series_folder = os.path.join(settings.get("deployment_folder"), self.movie.series)
             if not os.path.exists(series_folder):
                 os.makedirs(series_folder)                        
                         
             destination = os.path.join(series_folder, os.path.basename(self.filepath))
             
             # Copy movie clip
-            if settings.copy_associated_movieclips:                
+            if settings.get("copy_associated_movieclips"):                
                 shutil.copyfile(self.filepath, destination)
             else:
                 shutil.move(self.filepath, destination)
@@ -474,12 +474,7 @@ class EpisodeViewWidget(QtGui.QTableView):
         QtGui.QTableView.__init__(self, parent)
         self.verticalHeader().setDefaultSectionSize(125)
         self.horizontalHeader().setStretchLastSection(True)
-        self.setShowGrid(False) 
-        #palette = self.palette()
-        #palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor(128,128,128,200))        
-        #self.setPalette(palette)
-
-
+        self.setShowGrid(False)
 
 class SeriesInformationDock(QtGui.QDockWidget):
     def __init__(self, parent = None):
@@ -503,7 +498,7 @@ class LocalSearchDock(QtGui.QDockWidget):
         self.tab.setTabPosition(QtGui.QTabWidget.South)
         self.tab.addTab(self.local_search, "Local Library")
         self.dummywidget = QtGui.QWidget()
-        self.tab.addTab(self.dummywidget, QtGui.QIcon("images/plus.png"), "Add New Series")
+        self.tab.addTab(self.dummywidget, QtGui.QIcon("images/plus.png"), "Add Series")
         self.setWidget(self.tab)
         self.setFeatures(QtGui.QDockWidget.DockWidgetMovable | QtGui.QDockWidget.DockWidgetFloatable)
         
@@ -785,7 +780,7 @@ class MainWindow(QtGui.QMainWindow):
             self.tableview.scrollTo(goto_index, QtGui.QAbstractItemView.PositionAtTop)
 
     def load_episode_information_at_index(self, selected, deselected):
-        self.tableview.selectionModel().select(selected, QtGui.QItemSelectionModel.Deselect)
+        #self.tableview.selectionModel().select(selected, QtGui.QItemSelectionModel.Deselect)
         try:
             index = selected.indexes()[0]
             
@@ -799,7 +794,7 @@ class MainWindow(QtGui.QMainWindow):
             if not same_row:
                 self.seriesinfo.load_information(self.existing_series[index.row()])
                 self.last_selected_index = index                 
-                #self.tableview.selectRow(index.row())          
+                self.tableview.selectRow(index.row())          
                 #self.tableview.selectionModel().setCurrentIndex(QtCore.QModelIndex(), QtGui.QItemSelectionModel.Clear)
   
         except IndexError:  
@@ -882,7 +877,7 @@ def SeriesOrganizerDecoder(dct):
         return MovieClip(None, dct['identifier'], filename = dct['filename'], filesize = dct['filesize'], checksum = dct['checksum'])
     
     if '__settings__' in dct:
-        return Settings(copy_associated_movieclips = dct['copy_movieclips'], deployment_folder =  deployment_folder, automatic_thumbnail_creation = dct['thumbnail_creation'])
+        return Settings(settings = dct['settings'])
     
     return dct
 
@@ -903,7 +898,7 @@ class SeriesOrganizerEncoder(json.JSONEncoder):
             return { "__movieclip__" : True, "filename" : obj.filename, "filesize" : obj.filesize, "checksum" : obj.checksum, "identifier" : obj.identifier}        
         
         if isinstance(obj, Settings):
-            return { "__settings__" : True, "copy_movieclips" : obj.copy_associated_movieclips, "deployment_folder" : obj.deployment_folder, "thumbnail_creation" : obj.automatic_thumbnail_creation} 
+            return { "__settings__" : True, "settings" : obj.settings} 
         
         if isinstance(obj, QtCore.QString):
             return unicode(obj)        
@@ -913,27 +908,21 @@ class SeriesOrganizerEncoder(json.JSONEncoder):
 
 
 class Settings(object):
-    def __init__(self, copy_associated_movieclips = True, deployment_folder = None, automatic_thumbnail_creation = False):
-
-        ''' Defines if newly assigned movieclips are copied into their respective directory structure.
-            If this property is false this implies that the original file is moved instead of copied.     
-        '''
-        self.copy_associated_movieclips = copy_associated_movieclips
+    def __init__(self, settings = None):
         
-        
-        ''' Defines the folder in which all importan information is saved conserning this application.
-            Note that this musn't be the execution directory of this application.
-        '''
-        if deployment_folder is None:
-            self.deployment_folder = os.path.join(self.get_user_dir(),".diribeo")
+        if settings == None:
+            self.settings = {"copy_associated_movieclips" : True, 
+                             "deployment_folder" : os.path.join(self.get_user_dir(),".diribeo"),
+                             "automatic_thumbnail_creation" : False}
         else:
-            self.deployment_folder = deployment_folder
-        
-        
-        ''' Specifies if thumbnails should be created as soon as the movie clip gets associated with an 
-            episode or series
-        '''       
-        self.automatic_thumbnail_creation = automatic_thumbnail_creation       
+            self.settings = settings      
+
+
+    def get(self, attribute_name):
+        try:
+            return self.settings[attribute_name]
+        except KeyError:
+            pass
 
 
     def get_user_dir(self):
@@ -943,8 +932,8 @@ class Settings(object):
     
     def create_deployment_folder(self):
         ''' Creates the deployment folder if it doesn't exist '''
-        if not os.path.exists(self.deployment_folder):
-            os.makedirs(self.deployment_folder)
+        if not os.path.exists(self.get("deployment_folder")):
+            os.makedirs(self.get("deployment_folder"))
             
 
     def is_valid_file_extension(self, filepath):
@@ -1070,7 +1059,7 @@ class MovieClip(object):
 
 
     def is_available(self, series_name):        
-        filepath = os.path.join(settings.deployment_folder, series_name,self.filename)
+        filepath = os.path.join(settings.get("deployment_folder"), series_name,self.filename)
         
         if os.path.exists(filepath):
             return True
@@ -1296,7 +1285,7 @@ class Episode(object):
         return self.title == other.title and self.descriptor == other.descriptor
 
     def get_descriptor(self):
-        return "S: " + str(self.descriptor[0]) + " E: " + str(self.descriptor[1])
+        return str(self.descriptor[0]) + "x" + str(self.descriptor[1])
 
     def get_movieclips(self):
         try:
