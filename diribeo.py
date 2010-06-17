@@ -188,19 +188,29 @@ class MovieClipInformationWidget(QtGui.QFrame):
         self.setLayout(self.boxlayout)
         self.setFrameShape(QtGui.QFrame.StyledPanel)
         
+        self.movieclip = movieclip
+        self.movie = movie
+        
         if not movieclip.is_available(movie.series):
             self.setStyleSheet("color:red")
                     
         self.title = QtGui.QLabel()
-        
+        icon = QtGui.QIcon("images/media-playback-start.png")
+        self.play_button = QtGui.QPushButton(icon, "")        
         self.boxlayout.addWidget(QtGui.QLabel("Filename"))
         self.boxlayout.addWidget(self.title)
+        self.boxlayout.addWidget(self.play_button)
         self.boxlayout.addStretch(2)
         self.load_information(movieclip)
+        
+        self.play_button.clicked.connect(self.play)
         
     def load_information(self, movieclip):
         self.title.setText(movieclip.filename)
         
+    def play(self):
+        if self.movieclip.is_available(self.movie.series):            
+            os.startfile(os.path.normpath(self.movieclip.filepath))
 
 class MovieClipOverviewWidget(QtGui.QWidget):
     def __init__(self, parent = None, movieclips = None):
@@ -387,7 +397,8 @@ class SeriesInformationWidget(QtGui.QWidget):
             job.finished.connect(self.finished_movieclip_processing)
                                     
             job.finished.connect(self.load_information)
-            job.already_exists.connect(self.already_exists_warning)            
+            job.already_exists.connect(self.already_exists_warning) 
+            job.already_exists_in_another.connect(self.display_duplicate_warning)             
             job.filesystem_error.connect(self.filesystem_error_warning)
             jobs.append(job)
             job.start()
@@ -396,13 +407,9 @@ class SeriesInformationWidget(QtGui.QWidget):
             pass
         event.accept()        
 
-    def bla(self):
-        print "tessting"
-
-
     def already_exists_warning(self, movie, filepath):
-        messagebox = QtGui.QMessageBox(QtGui.QMessageBox.Warning, "Movie Clip already associated.", "")
-        messagebox.setText("You're trying to assign a movie clip multiple times.")
+        messagebox = QtGui.QMessageBox(QtGui.QMessageBox.Warning, "Movie Clip already associated", "")
+        messagebox.setText("You're trying to assign a movie clip to the same movie multiple times.")
         messagebox.setInformativeText("The movie clip (" + os.path.basename(filepath) + ") is already associated with another episode")
         messagebox.setStandardButtons(QtGui.QMessageBox.Ok) 
         messagebox.setDetailedText(filepath)
@@ -416,23 +423,34 @@ class SeriesInformationWidget(QtGui.QWidget):
         messagebox.setDetailedText(filepath)
         messagebox.exec_()
 
+    def display_duplicate_warning(self):
+        messagebox = QtGui.QMessageBox(QtGui.QMessageBox.Warning, "Movie Clip already associated", "")
+        messagebox.setText("The movie clip is already associated with another movie.")
+        messagebox.setInformativeText("Are you sure you want to assign this movie clip to this movie")
+        messagebox.setStandardButtons(QtGui.QMessageBox.Ok | QtGui.QMessageBox.Cancel) 
+        result = messagebox.exec_()
+        if result == QtGui.QMessageBox.Ok:
+            self.sender().assign()
+        else:
+            self.sender().quit()
 
 class MovieClipAssociator(QtCore.QThread):
     
     finished = QtCore.pyqtSignal("PyQt_PyObject")
     waiting = QtCore.pyqtSignal()
-    already_exists = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject")
+    already_exists = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject") # This signal is emitted when the movieclip is already in the dict and in the folder
     filesystem_error = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject")
+    already_exists_in_another = QtCore.pyqtSignal() # Emitted when movieclip is in _another_ episode
     
     def __init__(self, filepath, movie):
         QtCore.QThread.__init__(self)
         self.movie = movie
-        self.filepath = unicode(filepath)
-        
+        self.filepath = unicode(filepath) 
+
     def run(self):
-        key = self.movie.get_identifier()
+        self.identifier = self.movie.get_identifier()
         
-        if os.path.isfile(self.filepath) == False or not settings.is_valid_file_extension(self.filepath):
+        if not os.path.isfile(self.filepath) or not settings.is_valid_file_extension(self.filepath):
             self.filesystem_error.emit(self.movie, self.filepath)
         else:
             self.waiting.emit()
@@ -440,39 +458,81 @@ class MovieClipAssociator(QtCore.QThread):
             # Create deployment folder
             settings.create_deployment_folder()
             
-            clip = MovieClip(self.filepath, self.movie.identifier)
+            self.clip = MovieClip(self.filepath, self.movie.identifier)
             
-            # Build folder structure
-            series_folder = os.path.join(settings.get("deployment_folder"), self.movie.series)
-            if not os.path.exists(series_folder):
-                os.makedirs(series_folder)                        
-                        
-            destination = os.path.join(series_folder, os.path.basename(self.filepath))
+            # Check and see if the movieclip is already associated with _another_ movie and display warning
+            cancel = False
+            for another_identifier in movieclip_dict:
+                if another_identifier != self.identifier:
+                    if self.clip in movieclip_dict[another_identifier]:
+                        # Display Warning
+                        self.already_exists_in_another.emit()
+                        break #only display one message
             
-            # Copy movie clip
-            if settings.get("copy_associated_movieclips"):                
-                shutil.copyfile(self.filepath, destination)
-            else:
-                shutil.move(self.filepath, destination)
+            self.exec_()
             
-            add = True
-            for identifier in movieclip_dict:
-                if clip in movieclip_dict[identifier]:
-                    self.already_exists.emit(self.movie, self.filepath)
-                    self.finished.emit(self.movie)
-                    add = False
-
-            if add is True:
-                try:
-                    movieclip_dict[key].append(clip)
-                except KeyError:
-                    movieclip_dict[key] = []
-                    movieclip_dict[key].append(clip)
+    def assign(self):
+            """ Here is a list of possibilities that might occur:
+                    a) The clip is already in the movieclip dict and in its designated folder
+                    b) The clip is already in the movieclip dict, but not in its designated folder
+                    c) The clip is not in the movieclip dict but already in the folder
+                    d) The clip is not in the movieclip dict and not in the folder
+            """
+            
+            huntch = True
+            try:
+                movieclip_dict[self.identifier]
+            except KeyError:
+                huntch = False
+            
+            if huntch and self.clip in movieclip_dict[self.identifier]:
                 
-                self.finished.emit(self.movie)
-                save_movieclips()             
-
-
+                if self.clip.is_available(self.movie.series):
+                    # a)
+                    self.already_exists.emit(self.movie, self.filepath)
+                    add_to_movieclips = False
+                    move_to_clips = False
+                else:
+                    # b)
+                    move_to_folder = True
+                    add_to_movieclips = False
+                    
+            else:
+                if self.clip.is_available(self.movie.series):
+                    # c)
+                    move_to_folder = False
+                    add_to_movieclips = True
+                else:
+                    # d)
+                    move_to_folder = True
+                    add_to_movieclips = True
+                                           
+            
+            if add_to_movieclips :
+                try:
+                    movieclip_dict[self.identifier].append(self.clip)
+                except KeyError:
+                    movieclip_dict[self.identifier] = []
+                    movieclip_dict[self.identifier].append(self.clip)                
+                
+                save_movieclips()
+           
+            if move_to_folder:
+                # Build folder structure
+                series_folder = os.path.join(settings.get("deployment_folder"), self.movie.series)
+                if not os.path.exists(series_folder):
+                    os.makedirs(series_folder)                        
+                            
+                destination = os.path.join(series_folder, os.path.basename(self.filepath))
+                
+                # Copy / Move movie clip
+                if settings.get("copy_associated_movieclips"):                
+                    shutil.copyfile(self.filepath, destination)
+                else:
+                    shutil.move(self.filepath, destination)
+                        
+            
+            self.finished.emit(self.movie)
             
 class EpisodeViewWidget(QtGui.QTableView):    
     def __init__(self, parent = None):
@@ -1065,9 +1125,9 @@ class MovieClip(object):
             return self.filesize
 
 
-    def is_available(self, series_name):        
-        filepath = os.path.join(settings.get("deployment_folder"), series_name,self.filename)
-        
+    def is_available(self, series_name):
+        self.filepath = filepath = os.path.join(settings.get("deployment_folder"), series_name,self.filename)
+    
         if os.path.exists(filepath):
             return True
     
