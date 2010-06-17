@@ -223,9 +223,14 @@ class MovieClipOverviewWidget(QtGui.QWidget):
             self.draghere_label.setVisible(False)
             if movieclips != None:
                 for movieclip in movieclips:
-                    info_item = MovieClipInformationWidget(movieclip, movie)
-                    self.movieclipinfos.append(info_item)
-                    self.vbox.addWidget(info_item)
+                    add = True
+                    if not settings.get("show_all_movieclips"):
+                        if not movieclip.is_available(movie.series):
+                            add = False                    
+                    if add:
+                        info_item = MovieClipInformationWidget(movieclip, movie)
+                        self.movieclipinfos.append(info_item)
+                        self.vbox.addWidget(info_item)
         else:
             self.draghere_label.setVisible(True)
 
@@ -475,6 +480,7 @@ class EpisodeViewWidget(QtGui.QTableView):
         self.verticalHeader().setDefaultSectionSize(125)
         self.horizontalHeader().setStretchLastSection(True)
         self.setShowGrid(False)
+        self.setSelectionBehavior(QtGui.QTableView.SelectRows)
 
 class SeriesInformationDock(QtGui.QDockWidget):
     def __init__(self, parent = None):
@@ -913,7 +919,8 @@ class Settings(object):
         if settings == None:
             self.settings = {"copy_associated_movieclips" : True, 
                              "deployment_folder" : os.path.join(self.get_user_dir(),".diribeo"),
-                             "automatic_thumbnail_creation" : False}
+                             "automatic_thumbnail_creation" : False,
+                             "show_all_movieclips" : True}
         else:
             self.settings = settings      
 
