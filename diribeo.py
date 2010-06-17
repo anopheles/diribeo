@@ -834,7 +834,7 @@ class MainWindow(QtGui.QMainWindow):
                 series_list.append(current_series)
                 active_table_models[current_series] = model = EpisodeTableModel()
                 self.tableview.setModel(model)
-                self.tableview.selectionModel().currentRowChanged.connect(self.load_episode_information_at_index)
+                self.tableview.selectionModel().selectionChanged.connect(self.load_episode_information_at_index)
                 
                 self.existing_series = current_series                
                 job = ModelFiller(model, current_series, self, movie = movie)
