@@ -1034,7 +1034,7 @@ class Settings(object):
         filename = os.path.basename(filepath)
         name, ext = os.path.splitext(filename)
         
-        if ext[1:].lower() in ("mkv", "avi", "mpgeg", "mpg"):
+        if ext.lower().endswith(("mkv", "avi", "mpgeg", "mpg")):
             return True
 
 
@@ -1416,8 +1416,8 @@ class MovieClipManager(object):
             return self.dictionary[key]
         except KeyError:
             logging.debug("Key Error in Movieclip manager")
-        
-        return []
+            
+        return [] # Returns an empty list, to produce a empty iterator
 
     def check_unique(self, clip, identifier):
         for another_identifier in self.dictionary:
