@@ -215,12 +215,11 @@ class MovieClipInformationWidget(QtGui.QFrame):
         if available:
             self.control_layout.addWidget(self.delete_button)
             self.control_layout.addWidget(self.play_button)
+            self.control_layout.addWidget(self.open_button)
         
         self.control_layout.addWidget(self.remove_button)
         
-        self.gridlayout.addWidget(QtGui.QLabel("Filename"), 0, 0)
-        if available:
-            self.gridlayout.addWidget(self.open_button, 0, 1)
+        self.gridlayout.addWidget(QtGui.QLabel("Filename"), 0, 0)            
         self.gridlayout.addWidget(self.title, 1, 0)        
         self.gridlayout.addLayout(self.control_layout, 2, 0)
        
