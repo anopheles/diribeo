@@ -205,25 +205,35 @@ class MovieClipInformationWidget(QtGui.QFrame):
         icon_start = QtGui.QIcon("images/media-playback-start.png")
         icon_remove = QtGui.QIcon("images/edit-clear.png")
         icon_delete = QtGui.QIcon("images/process-stop.png")
+        icon_open = QtGui.QIcon("images/document-open.png")
         
         self.play_button = QtGui.QPushButton(icon_start, "")  
         self.remove_button = QtGui.QPushButton(icon_remove, "") 
-        self.delete_button = QtGui.QPushButton(icon_delete, "") 
+        self.delete_button = QtGui.QPushButton(icon_delete, "")
+        self.open_button = QtGui.QPushButton(icon_open, "")  
+        
+        if available:
+            self.control_layout.addWidget(self.delete_button)
+            self.control_layout.addWidget(self.play_button)
         
         self.control_layout.addWidget(self.remove_button)
-        self.control_layout.addWidget(self.delete_button)
-        self.control_layout.addWidget(self.play_button)
         
         self.gridlayout.addWidget(QtGui.QLabel("Filename"), 0, 0)
+        if available:
+            self.gridlayout.addWidget(self.open_button, 0, 1)
         self.gridlayout.addWidget(self.title, 1, 0)        
-        self.gridlayout.addLayout(self.control_layout, 2, 0)        
-        
-        self.play_button.clicked.connect(self.play)
-        self.remove_button.clicked.connect(self.remove)
+        self.gridlayout.addLayout(self.control_layout, 2, 0)
+       
+        self.play_button.clicked.connect(self.play)        
         self.delete_button.clicked.connect(self.delete)
+        self.remove_button.clicked.connect(self.remove)
+        self.open_button.clicked.connect(self.open_folder)
         
-        self.load_information(movieclip)
-        
+        self.load_information(movieclip)        
+    
+    def open_folder(self):
+        os.startfile(self.movieclip.get_folder(self.movie.series))
+    
     def load_information(self, movieclip):
         self.title.setText(movieclip.filename)
      
@@ -1152,14 +1162,18 @@ class MovieClip(object):
             return self.filesize
 
 
+    def get_folder(self, series_name):
+        if self.is_available(series_name):
+            return os.path.dirname(self.filepath)
+
     def delete_file_in_deployment_folder(self, series_name):
         if self.is_available(series_name):
             os.remove(self.filepath)
 
     def is_available(self, series_name):
-        self.filepath = filepath = os.path.join(settings.get("deployment_folder"), series_name, self.filename)
+        self.filepath = os.path.join(settings.get("deployment_folder"), series_name, self.filename)
     
-        if os.path.exists(filepath):
+        if os.path.exists(self.filepath):
             return True
     
     def __eq__(self, other):
