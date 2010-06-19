@@ -182,32 +182,59 @@ class LocalSearch(QtGui.QFrame):
 
 
 class MovieClipInformationWidget(QtGui.QFrame):
+    
+    update = QtCore.pyqtSignal("PyQt_PyObject")
+    
     def __init__(self, movieclip, movie, parent = None):
         QtGui.QFrame.__init__(self, parent)
-        self.boxlayout = QtGui.QVBoxLayout()
-        self.setLayout(self.boxlayout)
+        self.gridlayout = QtGui.QGridLayout()
+        self.setLayout(self.gridlayout)
         self.setFrameShape(QtGui.QFrame.StyledPanel)
+        
+        self.control_layout = QtGui.QHBoxLayout()
         
         self.movieclip = movieclip
         self.movie = movie
         
+        available = True
         if not movieclip.is_available(movie.series):
             self.setStyleSheet("color:red")
+            available = False
                     
         self.title = QtGui.QLabel()
-        icon = QtGui.QIcon("images/media-playback-start.png")
-        self.play_button = QtGui.QPushButton(icon, "")        
-        self.boxlayout.addWidget(QtGui.QLabel("Filename"))
-        self.boxlayout.addWidget(self.title)
-        self.boxlayout.addWidget(self.play_button)
-        self.boxlayout.addStretch(2)
-        self.load_information(movieclip)
+        icon_start = QtGui.QIcon("images/media-playback-start.png")
+        icon_remove = QtGui.QIcon("images/edit-clear.png")
+        icon_delete = QtGui.QIcon("images/process-stop.png")
+        
+        self.play_button = QtGui.QPushButton(icon_start, "")  
+        self.remove_button = QtGui.QPushButton(icon_remove, "") 
+        self.delete_button = QtGui.QPushButton(icon_delete, "") 
+        
+        self.control_layout.addWidget(self.remove_button)
+        self.control_layout.addWidget(self.delete_button)
+        self.control_layout.addWidget(self.play_button)
+        
+        self.gridlayout.addWidget(QtGui.QLabel("Filename"), 0, 0)
+        self.gridlayout.addWidget(self.title, 1, 0)        
+        self.gridlayout.addLayout(self.control_layout, 2, 0)        
         
         self.play_button.clicked.connect(self.play)
+        self.remove_button.clicked.connect(self.remove)
+        self.delete_button.clicked.connect(self.delete)
+        
+        self.load_information(movieclip)
         
     def load_information(self, movieclip):
         self.title.setText(movieclip.filename)
-        
+     
+    def delete(self):
+        self.movieclip.delete_file_in_deployment_folder(self.movie.series)
+        self.remove()
+      
+    def remove(self):
+        movieclips.remove(self.movieclip, self.movie.get_identifier()) 
+        self.update.emit(self.movie)
+    
     def play(self):
         if self.movieclip.is_available(self.movie.series):            
             os.startfile(os.path.normpath(self.movieclip.filepath))
@@ -220,7 +247,6 @@ class MovieClipOverviewWidget(QtGui.QWidget):
         self.movieclipinfos = []
         self.draghere_label = QtGui.QLabel("To add movie clips drag them here")                
         self.vbox.addWidget(self.draghere_label)
-      
     
     def load_movieclips(self, movie):
         
@@ -239,6 +265,7 @@ class MovieClipOverviewWidget(QtGui.QWidget):
                             add = False                    
                     if add:
                         info_item = MovieClipInformationWidget(movieclip, movie)
+                        info_item.update.connect(self.load_movieclips)
                         self.movieclipinfos.append(info_item)
                         self.vbox.addWidget(info_item)
         else:
@@ -432,6 +459,7 @@ class SeriesInformationWidget(QtGui.QWidget):
         if result == QtGui.QMessageBox.Ok:
             self.sender().assign()
         else:
+            self.sender().finished.emit(self.sender().movie)
             self.sender().quit()
 
 class MovieClipAssociator(QtCore.QThread):
@@ -461,15 +489,13 @@ class MovieClipAssociator(QtCore.QThread):
             self.clip = MovieClip(self.filepath, self.movie.identifier)
             
             # Check and see if the movieclip is already associated with _another_ movie and display warning
-            cancel = False
-            for another_identifier in movieclip_dict:
-                if another_identifier != self.identifier:
-                    if self.clip in movieclip_dict[another_identifier]:
-                        # Display Warning
-                        self.already_exists_in_another.emit()
-                        break #only display one message
+            unique = movieclips.check_unique(self.clip, self.identifier)
             
-            self.exec_()
+            if not unique:
+                self.already_exists_in_another.emit()
+                self.exec_()
+            else:
+                self.assign()
             
     def assign(self):
             """ Here is a list of possibilities that might occur:
@@ -479,19 +505,13 @@ class MovieClipAssociator(QtCore.QThread):
                     d) The clip is not in the movieclip dict and not in the folder
             """
             
-            huntch = True
-            try:
-                movieclip_dict[self.identifier]
-            except KeyError:
-                huntch = False
-            
-            if huntch and self.clip in movieclip_dict[self.identifier]:
+            if self.clip in movieclips[self.identifier]:
                 
                 if self.clip.is_available(self.movie.series):
                     # a)
                     self.already_exists.emit(self.movie, self.filepath)
-                    add_to_movieclips = False
-                    move_to_clips = False
+                    move_to_folder = False
+                    add_to_movieclips = False                    
                 else:
                     # b)
                     move_to_folder = True
@@ -509,12 +529,7 @@ class MovieClipAssociator(QtCore.QThread):
                                            
             
             if add_to_movieclips :
-                try:
-                    movieclip_dict[self.identifier].append(self.clip)
-                except KeyError:
-                    movieclip_dict[self.identifier] = []
-                    movieclip_dict[self.identifier].append(self.clip)                
-                
+                movieclips.add(self.clip, self.identifier)
                 save_movieclips()
            
             if move_to_folder:
@@ -942,8 +957,14 @@ def SeriesOrganizerDecoder(dct):
     if '__movieclip__' in dct:        
         return MovieClip(None, dct['identifier'], filename = dct['filename'], filesize = dct['filesize'], checksum = dct['checksum'])
     
+    if '__movieclips__' in dct:        
+        return MovieClipManager(dictionary = dct['dictionary'])
+    
     if '__settings__' in dct:
         return Settings(settings = dct['settings'])
+    
+    if '__set__' in dct:
+        return set(dct['contents'])
     
     return dct
 
@@ -965,6 +986,12 @@ class SeriesOrganizerEncoder(json.JSONEncoder):
         
         if isinstance(obj, Settings):
             return { "__settings__" : True, "settings" : obj.settings} 
+            
+        if isinstance(obj, MovieClipManager):
+            return { "__movieclips__" : True, "dictionary" : obj.dictionary}                
+        
+        if isinstance(obj, set):
+            return { "__set__" : True, "contents" : list(obj)}
         
         if isinstance(obj, QtCore.QString):
             return unicode(obj)        
@@ -1125,8 +1152,12 @@ class MovieClip(object):
             return self.filesize
 
 
+    def delete_file_in_deployment_folder(self, series_name):
+        if self.is_available(series_name):
+            os.remove(self.filepath)
+
     def is_available(self, series_name):
-        self.filepath = filepath = os.path.join(settings.get("deployment_folder"), series_name,self.filename)
+        self.filepath = filepath = os.path.join(settings.get("deployment_folder"), series_name, self.filename)
     
         if os.path.exists(filepath):
             return True
@@ -1356,7 +1387,7 @@ class Episode(object):
 
     def get_movieclips(self):
         try:
-            return movieclip_dict[self.get_identifier()]
+            return movieclips[self.get_identifier()]
         except KeyError:
             pass
     
@@ -1373,22 +1404,52 @@ class Episode(object):
                 pass
         return return_text 
 
+class MovieClipManager(object):
+    def __init__(self, dictionary = None):
+        if dictionary == None:
+            self.dictionary = {}       
+        else:
+            self.dictionary = dictionary
 
-
+    def __getitem__(self, key):
+        try:
+            return self.dictionary[key]
+        except KeyError:
+            logging.debug("Key Error in Movieclip manager")
         
+        return []
 
+    def check_unique(self, clip, identifier):
+        for another_identifier in self.dictionary:
+            if another_identifier != identifier:
+                if clip in self.dictionary[another_identifier]:
+                    return False
+        return True
+        
+    def add(self, movieclip, identifer):
+        try:
+             self.dictionary[identifer].add(movieclip)
+        except KeyError:           
+            self.dictionary[identifer] = set()
+            self.dictionary[identifer].add(movieclip)
+
+    def remove(self, movieclip, identifer):
+        self.dictionary[identifer].remove(movieclip)
+
+    def __iter__(self):
+        return self.dictionary.iteritems()
 
 def load_series():
     return load_file("series.json", [])    
     
 def load_movieclips():
-    return load_file("movieclips.json", {})
+    return load_file("movieclips.json", MovieClipManager())
 
 def save_series():
     save_file("series.json", series_list)
 
 def save_movieclips():
-    save_file("movieclips.json", movieclip_dict)
+    save_file("movieclips.json", movieclips)
 
 def load_settings():
     return load_file("settings.json", Settings())
@@ -1423,7 +1484,7 @@ if __name__ == "__main__":
     active_table_models = {}    
     jobs = []
     series_list = load_series()
-    movieclip_dict = load_movieclips()
+    movieclips = load_movieclips()
     settings = load_settings()
 
     mainwindow = MainWindow()
