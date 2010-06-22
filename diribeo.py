@@ -80,6 +80,88 @@ class EpisodeTableModel(QtCore.QAbstractTableModel):
         self.endInsertRows()
         return True      
 
+class MovieClipAssociator(QtCore.QThread):
+    
+    finished = QtCore.pyqtSignal("PyQt_PyObject")
+    waiting = QtCore.pyqtSignal()
+    already_exists = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject") # This signal is emitted when the movieclip is already in the dict and in the folder
+    filesystem_error = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject")
+    already_exists_in_another = QtCore.pyqtSignal() # Emitted when movieclip is in _another_ episode
+    
+    def __init__(self, filepath, movie):
+        QtCore.QThread.__init__(self)
+        self.movie = movie
+        self.filepath = unicode(filepath) 
+
+    def run(self):
+        self.identifier = self.movie.identifier.items()[0]
+        
+        if not os.path.isfile(self.filepath) or not settings.is_valid_file_extension(self.filepath):
+            self.filesystem_error.emit(self.movie, self.filepath)
+        else:
+            self.waiting.emit()
+            
+            self.clip = MovieClip(self.filepath, identifier = self.movie.identifier)
+            
+            # Check and see if the movieclip is already associated with _another_ movie and display warning
+            unique = movieclips.check_unique(self.clip, self.identifier)
+            
+            if not unique:
+                self.already_exists_in_another.emit()
+                self.exec_()
+            else:
+                self.assign()
+            
+    def assign(self):
+            """ Here is a list of possibilities that might occur:
+                    a) The clip is already in the movieclip dict and in its designated folder
+                    b) The clip is already in the movieclip dict, but not in its designated folder
+                    c) The clip is not in the movieclip dict but already in the folder
+                    d) The clip is not in the movieclip dict and not in the folder
+            """
+            
+            filename = os.path.basename(self.filepath)
+            
+            # Calculate hypothetical filepath
+            destination = settings.calculate_filepath(self.movie, filename)
+            directory = os.path.dirname(destination)
+            
+            if self.clip in movieclips[self.identifier]:
+                
+                if os.path.isfile(destination):
+                    # a)
+                    self.already_exists.emit(self.movie, self.filepath)
+                    move_to_folder = False
+                    add_to_movieclips = False                    
+                else:
+                    # b)
+                    move_to_folder = True
+                    add_to_movieclips = False
+                    
+            else:
+                if os.path.isfile(destination):
+                    # c)
+                    move_to_folder = True
+                    add_to_movieclips = True
+                else:
+                    # d)
+                    move_to_folder = True
+                    add_to_movieclips = True      
+            
+            if move_to_folder:
+                # If there's a collison, rename the current file
+                filename = settings.check_collision(destination)                
+                settings.move_file_to_folder_structure(self.movie, self.filepath, new_filename = filename)
+            
+            self.clip.filepath = os.path.join(directory, filename)
+
+            if add_to_movieclips :
+                movieclips.add(self.clip, self.identifier)
+                save_movieclips()                
+                            
+            self.finished.emit(self.movie)
+
+
 class MovieClipAssigner(QtCore.QThread):
     finished = QtCore.pyqtSignal()
     waiting = QtCore.pyqtSignal()
@@ -92,16 +174,25 @@ class MovieClipAssigner(QtCore.QThread):
     def run(self):
         self.waiting.emit()
         
-        movieclip = MovieClip(self.filepath)
-        possible_movieclips = movieclips.get_episode_list_with_matching_checksums(movieclip.checksum)
-        if len(possible_movieclips) == 0:
+        movieclip = MovieClip(self.filepath)        
+        possible_episodes, possible_movieclips = movieclips.get_episode_and_movieclip_list_with_matching_checksums(movieclip.checksum)        
+        if len(possible_episodes) == 0:
             self.no_association_found.emit()
-        elif len(possibile_movieclips) == 1:
-            print possible_movieclips
         else:
-            print possible_movieclips
-            
+            self.assign(possible_episodes[0], possible_movieclips[0])
+           
         self.finished.emit()
+
+    def assign(self, episode, movieclip):
+        print self.filepath
+        destination = settings.calculate_filepath(episode, os.path.basename(self.filepath))
+        directory = os.path.dirname(destination)
+        filename = settings.check_collision(destination)                
+        settings.move_file_to_folder_structure(episode, self.filepath, new_filename = filename)
+        movieclip.filepath = os.path.join(directory, filename)
+        save_movieclips() 
+            
+        
 
 
 class LocalSearch(QtGui.QFrame):
@@ -156,7 +247,7 @@ class LocalSearch(QtGui.QFrame):
         
     def dropEvent(self, event):        
         try:
-            filepath = event.mimeData().urls()[0].toLocalFile()
+            filepath = os.path.abspath(event.mimeData().urls()[0].toLocalFile())
             job = MovieClipAssigner(filepath)
             
             job.no_association_found.connect(self.no_association_found)
@@ -541,94 +632,7 @@ class SeriesInformationWidget(QtGui.QWidget):
             self.sender().quit()
 
 
-class MovieClipAssociator(QtCore.QThread):
-    
-    finished = QtCore.pyqtSignal("PyQt_PyObject")
-    waiting = QtCore.pyqtSignal()
-    already_exists = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject") # This signal is emitted when the movieclip is already in the dict and in the folder
-    filesystem_error = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject")
-    already_exists_in_another = QtCore.pyqtSignal() # Emitted when movieclip is in _another_ episode
-    
-    def __init__(self, filepath, movie):
-        QtCore.QThread.__init__(self)
-        self.movie = movie
-        self.filepath = unicode(filepath) 
 
-    def run(self):
-        self.identifier = self.movie.identifier.items()[0]
-        
-        if not os.path.isfile(self.filepath) or not settings.is_valid_file_extension(self.filepath):
-            self.filesystem_error.emit(self.movie, self.filepath)
-        else:
-            self.waiting.emit()
-            
-            self.clip = MovieClip(self.filepath, identifier = self.movie.identifier)
-            
-            # Check and see if the movieclip is already associated with _another_ movie and display warning
-            unique = movieclips.check_unique(self.clip, self.identifier)
-            
-            if not unique:
-                self.already_exists_in_another.emit()
-                self.exec_()
-            else:
-                self.assign()
-            
-    def assign(self):
-            """ Here is a list of possibilities that might occur:
-                    a) The clip is already in the movieclip dict and in its designated folder
-                    b) The clip is already in the movieclip dict, but not in its designated folder
-                    c) The clip is not in the movieclip dict but already in the folder
-                    d) The clip is not in the movieclip dict and not in the folder
-            """
-            
-            filename = os.path.basename(self.filepath)
-            
-            # Calculate hypothetical filepath
-            destination = settings.calculate_filepath(self.movie, filename)
-            directory = os.path.dirname(destination)
-            
-            if self.clip in movieclips[self.identifier]:
-                
-                if os.path.isfile(destination):
-                    # a)
-                    self.already_exists.emit(self.movie, self.filepath)
-                    move_to_folder = False
-                    add_to_movieclips = False                    
-                else:
-                    # b)
-                    move_to_folder = True
-                    add_to_movieclips = False
-                    
-            else:
-                if os.path.isfile(destination):
-                    # c)
-                    move_to_folder = True
-                    add_to_movieclips = True
-                else:
-                    # d)
-                    move_to_folder = True
-                    add_to_movieclips = True      
-            
-            if move_to_folder:
-                # If there's a collison, rename the current file
-                if os.path.isfile(destination):
-                    #Collision detected:
-                    filename = os.path.basename(destination)
-                    split = os.path.splitext(filename)
-                    
-                    index = 1 
-                    while(os.path.isfile(os.path.join(directory, filename))):
-                        filename = split[0] + " " + str(index) + split[1]
-                        index += 1
-                
-                settings.move_file_to_folder_structure(self.movie, self.filepath, new_filename = filename)
-            self.clip.filepath = os.path.join(directory, filename)
-
-            if add_to_movieclips :
-                movieclips.add(self.clip, self.identifier)
-                save_movieclips()                
-                            
-            self.finished.emit(self.movie)
             
 class EpisodeViewWidget(QtGui.QTableView):    
     def __init__(self, parent = None):
@@ -1098,6 +1102,18 @@ class Settings(object):
         except KeyError:
             pass
 
+    def check_collision(self, destination):
+        filename = os.path.basename(destination)
+        directory = os.path.dirname(destination)
+        if os.path.isfile(destination):
+            #Collision detected:            
+            split = os.path.splitext(filename)            
+            index = 1 
+            while(os.path.isfile(os.path.join(directory, filename))):
+                filename = split[0] + " " + str(index) + split[1]
+                index += 1
+        return filename
+            
 
     def get_user_dir(self):
         ''' Returns the user/Home directory of the user running this application. '''        
@@ -1523,15 +1539,17 @@ class MovieClipManager(object):
         return [] # Returns an empty list, to produce a empty iterator
 
     
-    def get_episode_list_with_matching_checksums(self, checksum):
+    def get_episode_and_movieclip_list_with_matching_checksums(self, checksum):
         episode_list = []
+        movieclip_list = []
         for implementation in self.dictionary:
             for key in self.dictionary[implementation]:
                 for movieclip in self.dictionary[implementation][key]:
                     if movieclip.checksum == checksum:
+                        movieclip_list.append(movieclip)
                         episode_list.append(self.from_movieclip_to_episode(movieclip))
                        
-        return episode_list
+        return episode_list, movieclip_list
     
     
     def from_movieclip_to_episode(self, movieclip):
