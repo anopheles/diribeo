@@ -78,39 +78,44 @@ class EpisodeTableModel(QtCore.QAbstractTableModel):
     def insertRows(self, row, count, modelindex):
         self.beginInsertRows(QtCore.QModelIndex(), row, count)
         self.endInsertRows()
-        return True  
+        return True      
 
-class OnlineSearch(QtGui.QFrame):
-    def __init__(self, parent = None):
-        QtGui.QFrame.__init__(self, parent)
-
-        self.setFrameShape(QtGui.QFrame.StyledPanel)
-        onlinelayout = QtGui.QVBoxLayout(self)
-        self.setLayout(onlinelayout)   
-
-        onlinesearchlabel = QtGui.QLabel("Serie's title: ")
-        self.onlinesearchbutton = QtGui.QPushButton("Search")
-        self.onlinesearchfield = QtGui.QLineEdit()        
-        self.onlineserieslist = QtGui.QListWidget()
-
-        onlinesearchgrid = QtGui.QGridLayout()
-        onlinesearchgrid.addWidget(onlinesearchlabel, 1 , 0)
-        onlinesearchgrid.addWidget(self.onlinesearchfield, 1, 1)     
-        onlinesearchgrid.addWidget(self.onlinesearchbutton, 1, 2)         
-
-        onlinelayout.addLayout(onlinesearchgrid)
-        onlinelayout.addWidget(self.onlineserieslist)
+class MovieClipAssigner(QtCore.QThread):
+    finished = QtCore.pyqtSignal()
+    waiting = QtCore.pyqtSignal()
+    no_association_found = QtCore.pyqtSignal()
     
+    def __init__(self, filepath):
+        QtCore.QThread.__init__(self)
+        self.filepath = filepath
+        
+    def run(self):
+        self.waiting.emit()
+        
+        movieclip = MovieClip(self.filepath)
+        possible_movieclips = movieclips.get_episode_list_with_matching_checksums(movieclip.checksum)
+        if len(possible_movieclips) == 0:
+            self.no_association_found.emit()
+        elif len(possibile_movieclips) == 1:
+            print possible_movieclips
+        else:
+            print possible_movieclips
+            
+        self.finished.emit()
+
 
 class LocalSearch(QtGui.QFrame):
+
+    waiting_for_movieclip_processing = QtCore.pyqtSignal()
+    finished_movieclip_processing = QtCore.pyqtSignal()
+    
 
     def __init__(self, parent=None):
         QtGui.QFrame.__init__(self, parent)       
 
         self.setFrameShape(QtGui.QFrame.StyledPanel)
         localframelayout = QtGui.QVBoxLayout(self)
-        self.setLayout(localframelayout)        
-
+        self.setLayout(localframelayout)
 
         localsearchlabel = QtGui.QLabel("Serie's title: ")
         self.localsearchbutton = QtGui.QPushButton("Search")
@@ -123,7 +128,6 @@ class LocalSearch(QtGui.QFrame):
         self.localseriestree.setHeaderHidden(True)
         self.initial_build_tree()
 
-
         localsearchgrid = QtGui.QGridLayout()
         localsearchgrid.addWidget(localsearchlabel, 1 , 0)
         localsearchgrid.addWidget(self.localsearchfield, 1, 1)     
@@ -133,6 +137,38 @@ class LocalSearch(QtGui.QFrame):
         localframelayout.addWidget(self.localseriestree)
         
         self.toplevel_items = []
+        
+        self.setAcceptDrops(True)
+
+    def no_association_found(self):
+        messagebox = QtGui.QMessageBox(QtGui.QMessageBox.Warning, "No Association found", "")
+        messagebox.setText("No association found")
+        messagebox.setInformativeText("ballala")
+        messagebox.setStandardButtons(QtGui.QMessageBox.Ok) 
+        messagebox.setDetailedText("")
+        messagebox.exec_()
+        
+    def dragEnterEvent(self, event):
+        event.acceptProposedAction()
+
+    def dragMoveEvent(self, event):
+        event.acceptProposedAction()
+        
+    def dropEvent(self, event):        
+        try:
+            filepath = event.mimeData().urls()[0].toLocalFile()
+            job = MovieClipAssigner(filepath)
+            
+            job.no_association_found.connect(self.no_association_found)
+            job.waiting.connect(self.waiting_for_movieclip_processing)
+            job.finished.connect(self.finished_movieclip_processing)
+            
+            jobs.append(job)            
+            job.start()
+
+        except AttributeError, IndexError:
+            pass
+        event.accept()
 
     def sort_tree(self):
         # This also sorts children which produces a unwanted sorting
@@ -441,7 +477,7 @@ class SeriesInformationWidget(QtGui.QWidget):
         
         # Handle the title
         try:
-            self.title.set_description(movie.series + " - " + movie.title + " - " + movie.get_descriptor())
+            self.title.set_description(movie.series[0] + " - " + movie.title + " - " + movie.get_descriptor())
         except AttributeError:
             self.title.set_description(movie.title)
         
@@ -504,6 +540,7 @@ class SeriesInformationWidget(QtGui.QWidget):
             self.sender().finished.emit(self.sender().movie)
             self.sender().quit()
 
+
 class MovieClipAssociator(QtCore.QThread):
     
     finished = QtCore.pyqtSignal("PyQt_PyObject")
@@ -525,7 +562,7 @@ class MovieClipAssociator(QtCore.QThread):
         else:
             self.waiting.emit()
             
-            self.clip = MovieClip(self.filepath, self.movie.identifier)
+            self.clip = MovieClip(self.filepath, identifier = self.movie.identifier)
             
             # Check and see if the movieclip is already associated with _another_ movie and display warning
             unique = movieclips.check_unique(self.clip, self.identifier)
@@ -611,7 +648,6 @@ class SeriesInformationDock(QtGui.QDockWidget):
         self.setWidget(scrollArea)
         self.setWindowTitle("Additional Information")
         self.setFeatures(QtGui.QDockWidget.DockWidgetMovable | QtGui.QDockWidget.DockWidgetFloatable)
-
 
             
 class LocalSearchDock(QtGui.QDockWidget):
@@ -826,6 +862,9 @@ class MainWindow(QtGui.QMainWindow):
         self.seriesinfo.waiting_for_movieclip_processing.connect(self.progressbar.waiting)        
         self.seriesinfo.finished_movieclip_processing.connect(self.progressbar.stop)
         
+        self.local_search.finished_movieclip_processing.connect(self.progressbar.stop)
+        self.local_search.waiting_for_movieclip_processing.connect(self.progressbar.waiting)
+        
         self.load_all_series_into_their_table()
         
         self.tableview.setModel(None)
@@ -996,7 +1035,7 @@ def SeriesOrganizerDecoder(dct):
         return Series(dct["title"], identifier = dct["identifier"], episodes = dct["episodes"], rating = dct["rating"], director = dct["director"], genre = dct["genre"], date = dct["date"])
 
     if '__movieclip__' in dct:        
-        return MovieClip(dct['filepath'], dct['identifier'], filesize = dct['filesize'], checksum = dct['checksum'])
+        return MovieClip(dct['filepath'], identifier = dct['identifier'], filesize = dct['filesize'], checksum = dct['checksum'])
     
     if '__movieclips__' in dct:        
         return MovieClipManager(dictionary = dct['dictionary'])
@@ -1080,7 +1119,7 @@ class Settings(object):
 
 
     def calculate_filepath(self, episode, filename):
-        return os.path.join(self.settings["deployment_folder"], episode.series, "Season " + str(episode.descriptor[0]), filename)
+        return os.path.join(self.settings["deployment_folder"], episode.series[0], "Season " + str(episode.descriptor[0]), filename)
 
 
     def move_file_to_folder_structure(self, episode, filepath, new_filename = None):
@@ -1112,7 +1151,7 @@ def create_default_image(episode):
     spacing = 1.25
 
     #extract text
-    text = episode.series + "\n" + episode.get_descriptor()
+    text = episode.series[0] + "\n" + episode.get_descriptor()
 
     #initalize pixmap object
     pixmap = QtGui.QPixmap(width, heigth)
@@ -1151,7 +1190,7 @@ def get_color_shade(index, number_of_colors):
     return [QtGui.QColor.fromHsvF(colornumber/float(number_of_colors), 1, 0.9, 0.25) for colornumber in range(number_of_colors)][index % number_of_colors]
 
 class MovieClip(object):
-    def __init__(self, filepath, identifier, filesize = None, checksum = None):
+    def __init__(self, filepath, identifier = None, filesize = None, checksum = None):
         self.filepath = filepath
                     
         self.identifier = identifier
@@ -1279,7 +1318,7 @@ class IMDBWrapper(object):
             if type(seasonnumber) == type(1):
                 for imdb_episode_number in seasons[seasonnumber]:  
                     imdb_episode = seasons[seasonnumber][imdb_episode_number]                       
-                    episode = Episode(title = imdb_episode.get('title'), descriptor = [imdb_episode.get('season'), imdb_episode.get('episode')], series = imdb_series.get('title'), date = imdb_episode.get('original air date'), plot = imdb_episode.get('plot'), identifier = {"imdb" : imdb_episode.movieID}, rating = {"imdb" : self.get_rating(ratings, imdb_episode)})
+                    episode = Episode(title = imdb_episode.get('title'), descriptor = [imdb_episode.get('season'), imdb_episode.get('episode')], series = (imdb_series.get('title'), imdb_series.movieID), date = imdb_episode.get('original air date'), plot = imdb_episode.get('plot'), identifier = {"imdb" : imdb_episode.movieID}, rating = {"imdb" : self.get_rating(ratings, imdb_episode)})
                     yield episode, numberofepisodes
 
         return
@@ -1414,7 +1453,7 @@ class Series(object):
         return None
         
     def get_identifier(self):
-        return self.identifier[self.identifier.keys()[0]]
+        return self.identifier.items()[0]
 
 class Episode(object):
     def __init__(self, title = "", descriptor = None, series = "", date = None, plot = "", identifier = None, rating = None, director = "", runtime = "", genre = ""):
@@ -1449,19 +1488,19 @@ class Episode(object):
 
     def get_movieclips(self):
         try:
-            return movieclips[self.identifier.items()[0]]
+            return movieclips[self.get_identifier()]
         except KeyError:
             pass
     
     def get_identifier(self):
         # Use the first key as unique identifier. Note that this is propably not a good idea!
-        return self.identifier[self.identifier.keys()[0]]
+        return self.identifier.items()[0]
         
     def get_ratings(self):
         return_text = ""
         for rating in self.rating:
             try:
-                return_text = str(rating).upper() + ": " + str(self.rating[rating][0]) + " (" + str(self.rating[rating][1]) + ")\n"
+                return_text = str(rating).upper() + ": " + str(self.rating[rating][0]) + " (" + str(self.rating[rating][1]) + ")\n" + return_text
             except TypeError:
                 pass
         return return_text 
@@ -1483,6 +1522,25 @@ class MovieClipManager(object):
             
         return [] # Returns an empty list, to produce a empty iterator
 
+    
+    def get_episode_list_with_matching_checksums(self, checksum):
+        episode_list = []
+        for implementation in self.dictionary:
+            for key in self.dictionary[implementation]:
+                for movieclip in self.dictionary[implementation][key]:
+                    if movieclip.checksum == checksum:
+                        episode_list.append(self.from_movieclip_to_episode(movieclip))
+                       
+        return episode_list
+    
+    
+    def from_movieclip_to_episode(self, movieclip):
+        for series in series_list:
+            for episode in series.episodes:
+                if episode.identifier == movieclip.identifier:
+                    return episode
+                
+
     def check_unique(self, clip, identifier):
         implementation, key = identifier
         for another_key in self.dictionary[implementation]:
@@ -1492,17 +1550,17 @@ class MovieClipManager(object):
         return True
         
     def add(self, movieclip, identifier):
-        #TODO
-        implementation, key = identifier
-        
+        implementation, key = identifier        
         try:
              self.dictionary[implementation][key].append(movieclip)
         except KeyError:           
             self.dictionary[implementation][key] = []
             self.dictionary[implementation][key].append(movieclip) 
 
-    def remove(self, movieclip, identifer):
-        self.dictionary[identifer].remove(movieclip)
+    def remove(self, movieclip, identifier):
+        implementation, key = identifier
+        self.dictionary[implementation][key].remove(movieclip)
+        save_movieclips()
 
     def __iter__(self):
         return self.dictionary.iteritems()
