@@ -94,7 +94,7 @@ class MovieClipAssociator(QtCore.QThread):
         self.filepath = unicode(filepath) 
 
     def run(self):
-        self.identifier = self.movie.identifier.items()[0]
+        self.identifier = self.movie.get_identifier()
         
         if not os.path.isfile(self.filepath) or not settings.is_valid_file_extension(self.filepath):
             self.filesystem_error.emit(self.movie, self.filepath)
@@ -150,19 +150,32 @@ class MovieClipAssociator(QtCore.QThread):
             
             if move_to_folder:
                 # If there's a collison, rename the current file
-                filename = settings.check_collision(destination)                
+                filename = settings.get_collision_free_filename(destination)
+                
+                # Move the file to the actual folder
                 settings.move_file_to_folder_structure(self.movie, self.filepath, new_filename = filename)
-            
-            self.clip.filepath = os.path.join(directory, filename)
+                
+                # Update the filepath of the clip            
+                self.clip.filepath = os.path.join(directory, filename)
 
             if add_to_movieclips :
-                movieclips.add(self.clip, self.identifier)
-                save_movieclips()                
+                # Add the clips to the movie clips manager
+                movieclips.add(self.clip)                
+                
+            if move_to_folder or add_to_movielips:
+                # Save the movie clips to file
+                save_movieclips()    
                             
             self.finished.emit(self.movie)
 
 
 class MovieClipAssigner(QtCore.QThread):
+    ''' This class is responsible for assigning a movie clip to a unknown episode.
+        It calculates the hash value of a the given file and looks for matches in appropiate data structures.
+        If no matches are found the "no_association_found' signal is emitted.
+        If one or more matches are found the movie clip file is moved/copied to the designated folder.
+    '''
+    
     finished = QtCore.pyqtSignal()
     waiting = QtCore.pyqtSignal()
     no_association_found = QtCore.pyqtSignal()
@@ -184,15 +197,23 @@ class MovieClipAssigner(QtCore.QThread):
         self.finished.emit()
 
     def assign(self, episode, movieclip):
-        print self.filepath
+        # Calculate destination of movieclip
         destination = settings.calculate_filepath(episode, os.path.basename(self.filepath))
-        directory = os.path.dirname(destination)
-        filename = settings.check_collision(destination)                
-        settings.move_file_to_folder_structure(episode, self.filepath, new_filename = filename)
-        movieclip.filepath = os.path.join(directory, filename)
-        save_movieclips() 
-            
         
+        # Extract directory
+        directory = os.path.dirname(destination)
+        
+        # Check if there is already a file with the same name associated
+        filename = settings.get_collision_free_filename(destination)                
+        
+        # Move the file to its folder
+        settings.move_file_to_folder_structure(episode, self.filepath, new_filename = filename)
+        
+        # Change filepath on movieclip object
+        movieclip.filepath = os.path.join(directory, filename)
+        
+        # Save movieclips to file 
+        save_movieclips() 
 
 
 class LocalSearch(QtGui.QFrame):
@@ -1102,9 +1123,11 @@ class Settings(object):
         except KeyError:
             pass
 
-    def check_collision(self, destination):
+    def get_collision_free_filename(self, destination):
+        
         filename = os.path.basename(destination)
         directory = os.path.dirname(destination)
+        
         if os.path.isfile(destination):
             #Collision detected:            
             split = os.path.splitext(filename)            
@@ -1127,6 +1150,7 @@ class Settings(object):
             
 
     def is_valid_file_extension(self, filepath):
+        ''' Checks if the given filepath's filename has a proper movie clip extension ''' 
         filename = os.path.basename(filepath)
         name, ext = os.path.splitext(filename)
         
@@ -1135,10 +1159,14 @@ class Settings(object):
 
 
     def calculate_filepath(self, episode, filename):
+        ''' Calculates the destination filepath of a given episode '''
         return os.path.join(self.settings["deployment_folder"], episode.series[0], "Season " + str(episode.descriptor[0]), filename)
 
 
     def move_file_to_folder_structure(self, episode, filepath, new_filename = None):
+        ''' This method is responsible for moving the given file (filepath) to the calculated destination.
+            It is also possible to define a new filename with the help of the new_filename parameter.
+        '''
         
         if new_filename is not None:
             filename = new_filename
@@ -1156,10 +1184,8 @@ class Settings(object):
             shutil.copyfile(filepath, destination)
         else:
             shutil.move(filepath, destination)
+
             
-        return destination
-
-
 def create_default_image(episode):
     multiplikator = 5
     width = 16 * multiplikator
@@ -1304,7 +1330,7 @@ class IMDBWrapper(object):
         imdb_series = self.ia.get_movie(str(imdb_identifier))
 
         #Make sure that imdb movie is an actual tv series
-        assert imdb_series['kind'] == "tv series"
+        assert imdb_series.get('kind') == "tv series"
 
         self.get_episodes(imdb_series)
 
@@ -1318,7 +1344,7 @@ class IMDBWrapper(object):
 
         seasons = imdb_series.get('episodes')
 
-        numberofepisodes = imdb_series['number of episodes'] - 1
+        numberofepisodes = imdb_series.get('number of episodes') - 1
 
         # Import helpers form imdb to sort episodes
         from imdb import helpers
@@ -1419,18 +1445,18 @@ class Series(object):
         self.date = date
 
     def __getitem__(self, key):
-        """ Returns the n-th episode of the series """
+        ''' Returns the n-th episode of the series '''
         return self.episodes[key]
 
     def __len__(self):
-        """ Returns the number of episodes """
+        ''' Returns the number of episodes '''
         return len(self.episodes)
 
     def __repr__(self):
         return "S(" + self.title + " E: " + str(len(self.episodes)) + ")"
 
     def get_seasons(self):
-        """ Returns a dictionary of seasons. Each season contains a list of episodes """
+        ''' Returns a dictionary of seasons. Each season contains a list of episodes '''
         try:
             return self.seasons
         except AttributeError:
@@ -1445,15 +1471,9 @@ class Series(object):
 
             return self.seasons
 
-
-    def get_episodes(self):
-        for episode in self.episodes:
-            yield episode, len(self.episodes)
-
-
     def accumulate_episode_count(self, season):
-        """This function adds all the preceeding episodes of the given season
-        and returns the accumulated value"""
+        ''' This function adds all the preceeding episodes of the given season
+        and returns the accumulated value '''
 
         seasons = self.get_seasons()        
         accumulated_sum = 0
@@ -1540,6 +1560,10 @@ class MovieClipManager(object):
 
     
     def get_episode_and_movieclip_list_with_matching_checksums(self, checksum):
+        ''' This function searches for the given checksum in the internal data structures.
+            It returns two lists as a tuple. The first beign a list of episodes. The second
+            beign a list of movie clips which match the checksum.
+        '''
         episode_list = []
         movieclip_list = []
         for implementation in self.dictionary:
@@ -1553,22 +1577,27 @@ class MovieClipManager(object):
     
     
     def from_movieclip_to_episode(self, movieclip):
+        ''' This function searches through the series_list and returns the 
+            first episode which is associated to the given movie clip
+        '''        
         for series in series_list:
             for episode in series.episodes:
                 if episode.identifier == movieclip.identifier:
                     return episode
                 
 
-    def check_unique(self, clip, identifier):
+    def check_unique(self, movieclip, identifier):
+        ''' Checks if the given movie clip hasn't been assigned to a different epsiode '''
+        
         implementation, key = identifier
         for another_key in self.dictionary[implementation]:
             if another_key != key:
-                if clip in self.dictionary[implementation][another_key]:
+                if movieclip in self.dictionary[implementation][another_key]:
                     return False
         return True
         
-    def add(self, movieclip, identifier):
-        implementation, key = identifier        
+    def add(self, movieclip):
+        implementation, key = movieclip.identifier.items()[0]       
         try:
              self.dictionary[implementation][key].append(movieclip)
         except KeyError:           
