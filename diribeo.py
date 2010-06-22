@@ -16,6 +16,7 @@ import shutil
 from PyQt4 import QtGui
 from PyQt4 import QtCore
 from PyQt4.QtCore import Qt
+from collections import defaultdict
 
 
 # Initialize the logger
@@ -197,7 +198,7 @@ class MovieClipInformationWidget(QtGui.QFrame):
         self.movie = movie
         
         available = True
-        if not movieclip.is_available(movie.series):
+        if not os.path.isfile(movieclip.filepath):
             self.setStyleSheet("color:red")
             available = False
                     
@@ -229,12 +230,46 @@ class MovieClipInformationWidget(QtGui.QFrame):
         self.open_button.clicked.connect(self.open_folder)
         
         self.load_information(movieclip)        
+
+    def mousePressEvent(self, event):
+        #TODO
+        
+        child = self.childAt(event.pos())
+        if not child:
+            return
+        
+        print type(event)
+        print child, child.text()
+            
+        itemData = QtCore.QByteArray()
+        dataStream = QtCore.QDataStream(itemData, QtCore.QIODevice.WriteOnly)
+        dataStream << self.title.text() << QtCore.QPoint(event.pos() - self.rect().topLeft())
+
+        mimeData = QtCore.QMimeData()
+        mimeData.setData('application/x-fridgemagnet', itemData)
+        mimeData.setText(self.title.text())
+        
+        image = QtGui.QPixmap.grabWidget(self, 0, 0, self.width(), self.height())
     
+        drag = QtGui.QDrag(self)
+        drag.setMimeData(mimeData)
+        drag.setHotSpot(event.pos() - self.rect().topLeft())
+        drag.setPixmap(image)
+
+        self.hide()
+
+        if drag.exec_(QtCore.Qt.MoveAction | QtCore.Qt.CopyAction, QtCore.Qt.CopyAction) == QtCore.Qt.MoveAction:
+            print "close"
+            self.close()
+        else:
+            print "show"
+            self.show()
+
     def open_folder(self):
-        os.startfile(self.movieclip.get_folder(self.movie.series))
+        os.startfile(self.movieclip.get_folder())
     
     def load_information(self, movieclip):
-        self.title.setText(movieclip.filename)
+        self.title.setText(movieclip.get_filename())
      
     def delete(self):
         self.movieclip.delete_file_in_deployment_folder(self.movie.series)
@@ -245,7 +280,7 @@ class MovieClipInformationWidget(QtGui.QFrame):
         self.update.emit(self.movie)
     
     def play(self):
-        if self.movieclip.is_available(self.movie.series):            
+        if os.path.isfile(self.movieclip.filepath):
             os.startfile(os.path.normpath(self.movieclip.filepath))
 
 class MovieClipOverviewWidget(QtGui.QWidget):
@@ -270,7 +305,7 @@ class MovieClipOverviewWidget(QtGui.QWidget):
                 for movieclip in movieclips:
                     add = True
                     if not settings.get("show_all_movieclips"):
-                        if not movieclip.is_available(movie.series):
+                        if not os.path.isfile(movieclip.filename):
                             add = False                    
                     if add:
                         info_item = MovieClipInformationWidget(movieclip, movie)
@@ -314,10 +349,8 @@ class SeriesInformationCategory(QtGui.QWidget):
         
     def setText(self, text):
         if text == None or text == "":
-            text = self.default
-            
+            text = self.default           
         self.set_content(text)
-
 
     def reset(self):
         self.set_content(self.default)
@@ -439,14 +472,14 @@ class SeriesInformationWidget(QtGui.QWidget):
             jobs.append(job)
             job.start()
             
-        except AttributeError:
+        except AttributeError, IndexError:
             pass
         event.accept()        
 
     def already_exists_warning(self, movie, filepath):
         messagebox = QtGui.QMessageBox(QtGui.QMessageBox.Warning, "Movie Clip already associated", "")
         messagebox.setText("You're trying to assign a movie clip to the same movie multiple times.")
-        messagebox.setInformativeText("The movie clip (" + os.path.basename(filepath) + ") is already associated with another episode")
+        messagebox.setInformativeText("The movie clip (" + os.path.basename(filepath) + ") is already associated with this episode")
         messagebox.setStandardButtons(QtGui.QMessageBox.Ok) 
         messagebox.setDetailedText(filepath)
         messagebox.exec_()
@@ -485,15 +518,12 @@ class MovieClipAssociator(QtCore.QThread):
         self.filepath = unicode(filepath) 
 
     def run(self):
-        self.identifier = self.movie.get_identifier()
+        self.identifier = self.movie.identifier.items()[0]
         
         if not os.path.isfile(self.filepath) or not settings.is_valid_file_extension(self.filepath):
             self.filesystem_error.emit(self.movie, self.filepath)
         else:
             self.waiting.emit()
-            
-            # Create deployment folder
-            settings.create_deployment_folder()
             
             self.clip = MovieClip(self.filepath, self.movie.identifier)
             
@@ -514,9 +544,15 @@ class MovieClipAssociator(QtCore.QThread):
                     d) The clip is not in the movieclip dict and not in the folder
             """
             
+            filename = os.path.basename(self.filepath)
+            
+            # Calculate hypothetical filepath
+            destination = settings.calculate_filepath(self.movie, filename)
+            directory = os.path.dirname(destination)
+            
             if self.clip in movieclips[self.identifier]:
                 
-                if self.clip.is_available(self.movie.series):
+                if os.path.isfile(destination):
                     # a)
                     self.already_exists.emit(self.movie, self.filepath)
                     move_to_folder = False
@@ -527,35 +563,34 @@ class MovieClipAssociator(QtCore.QThread):
                     add_to_movieclips = False
                     
             else:
-                if self.clip.is_available(self.movie.series):
+                if os.path.isfile(destination):
                     # c)
-                    move_to_folder = False
+                    move_to_folder = True
                     add_to_movieclips = True
                 else:
                     # d)
                     move_to_folder = True
-                    add_to_movieclips = True
-                                           
+                    add_to_movieclips = True      
             
+            if move_to_folder:
+                # If there's a collison, rename the current file
+                if os.path.isfile(destination):
+                    #Collision detected:
+                    filename = os.path.basename(destination)
+                    split = os.path.splitext(filename)
+                    
+                    index = 1 
+                    while(os.path.isfile(os.path.join(directory, filename))):
+                        filename = split[0] + " " + str(index) + split[1]
+                        index += 1
+                
+                settings.move_file_to_folder_structure(self.movie, self.filepath, new_filename = filename)
+            self.clip.filepath = os.path.join(directory, filename)
+
             if add_to_movieclips :
                 movieclips.add(self.clip, self.identifier)
-                save_movieclips()
-           
-            if move_to_folder:
-                # Build folder structure
-                series_folder = os.path.join(settings.get("deployment_folder"), self.movie.series)
-                if not os.path.exists(series_folder):
-                    os.makedirs(series_folder)                        
+                save_movieclips()                
                             
-                destination = os.path.join(series_folder, os.path.basename(self.filepath))
-                
-                # Copy / Move movie clip
-                if settings.get("copy_associated_movieclips"):                
-                    shutil.copyfile(self.filepath, destination)
-                else:
-                    shutil.move(self.filepath, destination)
-                        
-            
             self.finished.emit(self.movie)
             
 class EpisodeViewWidget(QtGui.QTableView):    
@@ -706,11 +741,8 @@ class ModelFiller(QtCore.QThread):
                 self.progress.emit(self, self.episode_counter, episodenumber)        
                 
         save_series()            
-        self.finished.emit(self)        
-
+        self.finished.emit(self)
         self.update_tree.emit(self.series)
-
-
 
 class SeriesProgressbar(QtGui.QProgressBar):
     def __init__(self, parent=None, tablemodel = None):
@@ -869,23 +901,23 @@ class MainWindow(QtGui.QMainWindow):
     
             self.tableview.scrollTo(goto_index, QtGui.QAbstractItemView.PositionAtTop)
 
-    def load_episode_information_at_index(self, selected, deselected):
-        #self.tableview.selectionModel().select(selected, QtGui.QItemSelectionModel.Deselect)
+    def load_episode_information_at_index(self, selected, deselected):        
         try:
             index = selected.indexes()[0]
+            last_selection_model = self.tableview.selectionModel()
             
             same_row = False
             try:
-                if self.last_selected_index.row() == index.row():
+                if self.last_selected_index.row() == index.row() and self.last_selection_model == last_selection_model:
                     same_row = True
             except AttributeError:
                 pass
             
             if not same_row:
                 self.seriesinfo.load_information(self.existing_series[index.row()])
-                self.last_selected_index = index                 
-                self.tableview.selectRow(index.row())          
-                #self.tableview.selectionModel().setCurrentIndex(QtCore.QModelIndex(), QtGui.QItemSelectionModel.Clear)
+                self.last_selected_index = index  
+                self.last_selection_model = last_selection_model               
+                self.tableview.selectRow(index.row())
   
         except IndexError:  
             pass  
@@ -964,7 +996,7 @@ def SeriesOrganizerDecoder(dct):
         return Series(dct["title"], identifier = dct["identifier"], episodes = dct["episodes"], rating = dct["rating"], director = dct["director"], genre = dct["genre"], date = dct["date"])
 
     if '__movieclip__' in dct:        
-        return MovieClip(None, dct['identifier'], filename = dct['filename'], filesize = dct['filesize'], checksum = dct['checksum'])
+        return MovieClip(dct['filepath'], dct['identifier'], filesize = dct['filesize'], checksum = dct['checksum'])
     
     if '__movieclips__' in dct:        
         return MovieClipManager(dictionary = dct['dictionary'])
@@ -991,7 +1023,7 @@ class SeriesOrganizerEncoder(json.JSONEncoder):
             return { "__series__" : True, "title" : obj.title, "episodes" : obj.episodes, "identifier" : obj.identifier, "rating" : obj.rating,  "director" : obj.director, "genre" : obj.genre, "date" : obj.date}
 
         if isinstance(obj, MovieClip):
-            return { "__movieclip__" : True, "filename" : obj.filename, "filesize" : obj.filesize, "checksum" : obj.checksum, "identifier" : obj.identifier}        
+            return { "__movieclip__" : True, "filepath" : obj.filepath, "filesize" : obj.filesize, "checksum" : obj.checksum, "identifier" : obj.identifier}        
         
         if isinstance(obj, Settings):
             return { "__settings__" : True, "settings" : obj.settings} 
@@ -1043,9 +1075,34 @@ class Settings(object):
         filename = os.path.basename(filepath)
         name, ext = os.path.splitext(filename)
         
-        if ext.lower().endswith(("mkv", "avi", "mpgeg", "mpg")):
+        if ext.lower().endswith(("mkv", "avi", "mpgeg", "mpg", "wmv")):
             return True
 
+
+    def calculate_filepath(self, episode, filename):
+        return os.path.join(self.settings["deployment_folder"], episode.series, "Season " + str(episode.descriptor[0]), filename)
+
+
+    def move_file_to_folder_structure(self, episode, filepath, new_filename = None):
+        
+        if new_filename is not None:
+            filename = new_filename
+        else:
+            filename = os.path.basename(filepath)
+        
+        destination = self.calculate_filepath(episode, filename)
+        directory = os.path.dirname(destination)
+        
+        if not os.path.exists(directory):
+            os.makedirs(directory) 
+        
+        # Copy / Move movie clip
+        if self.settings["copy_associated_movieclips"]:                
+            shutil.copyfile(filepath, destination)
+        else:
+            shutil.move(filepath, destination)
+            
+        return destination
 
 
 def create_default_image(episode):
@@ -1094,14 +1151,9 @@ def get_color_shade(index, number_of_colors):
     return [QtGui.QColor.fromHsvF(colornumber/float(number_of_colors), 1, 0.9, 0.25) for colornumber in range(number_of_colors)][index % number_of_colors]
 
 class MovieClip(object):
-    def __init__(self, filepath, identifier, filename = None, filesize = None, checksum = None):
+    def __init__(self, filepath, identifier, filesize = None, checksum = None):
         self.filepath = filepath
-        
-        if filename == None:
-            self.filename = os.path.basename(filepath)
-        else:
-            self.filename = filename
-            
+                    
         self.identifier = identifier
         
         if checksum is None:
@@ -1116,6 +1168,9 @@ class MovieClip(object):
             
         self.thumbnails = []
         
+    def get_filename(self):
+        return os.path.basename(self.filepath)    
+    
     def get_thumbnails(self):
         """ This function gathers the thumbnails and adds them to the dedicated thumnails list"""
         pass
@@ -1161,19 +1216,13 @@ class MovieClip(object):
             return self.filesize
 
 
-    def get_folder(self, series_name):
-        if self.is_available(series_name):
+    def get_folder(self):
+        if os.path.isfile(self.filepath):
             return os.path.dirname(self.filepath)
 
     def delete_file_in_deployment_folder(self, series_name):
-        if self.is_available(series_name):
+        if os.path.isfile(self.filepath):
             os.remove(self.filepath)
-
-    def is_available(self, series_name):
-        self.filepath = os.path.join(settings.get("deployment_folder"), series_name, self.filename)
-    
-        if os.path.exists(self.filepath):
-            return True
     
     def __eq__(self, other):
         if self.checksum == other.checksum:
@@ -1365,7 +1414,7 @@ class Series(object):
         return None
         
     def get_identifier(self):
-        return str((self.identifier.keys()[0], self.identifier[self.identifier.keys()[0]]))
+        return self.identifier[self.identifier.keys()[0]]
 
 class Episode(object):
     def __init__(self, title = "", descriptor = None, series = "", date = None, plot = "", identifier = None, rating = None, director = "", runtime = "", genre = ""):
@@ -1400,13 +1449,13 @@ class Episode(object):
 
     def get_movieclips(self):
         try:
-            return movieclips[self.get_identifier()]
+            return movieclips[self.identifier.items()[0]]
         except KeyError:
             pass
     
     def get_identifier(self):
         # Use the first key as unique identifier. Note that this is propably not a good idea!
-        return self.identifier.keys()[0] + self.identifier[self.identifier.keys()[0]]
+        return self.identifier[self.identifier.keys()[0]]
         
     def get_ratings(self):
         return_text = ""
@@ -1420,31 +1469,37 @@ class Episode(object):
 class MovieClipManager(object):
     def __init__(self, dictionary = None):
         if dictionary == None:
-            self.dictionary = {}       
+            self.dictionary = {"imdb" : {}}       
         else:
             self.dictionary = dictionary
 
-    def __getitem__(self, key):
-        try:
-            return self.dictionary[key]
+    def __getitem__(self, identifier):
+       
+        implementation, key = identifier
+        try:            
+            return self.dictionary[implementation][key]
         except KeyError:
             logging.debug("Key Error in Movieclip manager")
             
         return [] # Returns an empty list, to produce a empty iterator
 
     def check_unique(self, clip, identifier):
-        for another_identifier in self.dictionary:
-            if another_identifier != identifier:
-                if clip in self.dictionary[another_identifier]:
+        implementation, key = identifier
+        for another_key in self.dictionary[implementation]:
+            if another_key != key:
+                if clip in self.dictionary[implementation][another_key]:
                     return False
         return True
         
-    def add(self, movieclip, identifer):
+    def add(self, movieclip, identifier):
+        #TODO
+        implementation, key = identifier
+        
         try:
-             self.dictionary[identifer].add(movieclip)
+             self.dictionary[implementation][key].append(movieclip)
         except KeyError:           
-            self.dictionary[identifer] = set()
-            self.dictionary[identifer].add(movieclip)
+            self.dictionary[implementation][key] = []
+            self.dictionary[implementation][key].append(movieclip) 
 
     def remove(self, movieclip, identifer):
         self.dictionary[identifer].remove(movieclip)
