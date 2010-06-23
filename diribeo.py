@@ -155,8 +155,8 @@ class MovieClipAssociator(QtCore.QThread):
                     add_to_movieclips = True      
             
             if move_to_folder:
-                # If there's a collison, rename the current file
-                filename = settings.get_collision_free_filename(destination)
+                # Check if there is already a file with the same name, normalizes file name if set to do so
+                filename = settings.get_unique_filename(destination, self.movie)
                 
                 # Move the file to the actual folder
                 settings.move_file_to_folder_structure(self.movie, self.filepath, new_filename = filename)
@@ -185,6 +185,8 @@ class MovieClipAssigner(QtCore.QThread):
     finished = QtCore.pyqtSignal()
     waiting = QtCore.pyqtSignal()
     no_association_found = QtCore.pyqtSignal()
+    already_exists = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject") # This signal is emitted when the movieclip is already in the dict and in the folder
+    association_found = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject")
     
     def __init__(self, filepath):
         QtCore.QThread.__init__(self)
@@ -202,24 +204,35 @@ class MovieClipAssigner(QtCore.QThread):
            
         self.finished.emit()
 
-    def assign(self, episode, movieclip):
+    def assign(self, episode, movieclip):        
+        
         # Calculate destination of movieclip
         destination = settings.calculate_filepath(episode, os.path.basename(self.filepath))
         
-        # Extract directory
-        directory = os.path.dirname(destination)
         
-        # Check if there is already a file with the same name associated
-        filename = settings.get_collision_free_filename(destination)                
-        
-        # Move the file to its folder
-        settings.move_file_to_folder_structure(episode, self.filepath, new_filename = filename)
-        
-        # Change filepath on movieclip object
-        movieclip.filepath = os.path.join(directory, filename)
-        
-        # Save movieclips to file 
-        save_movieclips() 
+        if os.path.isfile(destination):
+            # The movie clip is already at its destination
+            self.already_exists.emit(movieclip, destination)        
+        else:        
+            # Extract directory
+            directory = os.path.dirname(destination)
+            
+            # Check if there is already a file with the same name, normalizes file name if set to do so
+            filename = settings.get_unique_filename(destination, episode)
+            
+            # Move the file to its folder
+            settings.move_file_to_folder_structure(episode, self.filepath, new_filename = filename)
+            
+            # Emit associating found signal
+            self.association_found.emit(movieclip, episode)
+            
+            # Change filepath on movieclip object
+            movieclip.filepath = os.path.join(directory, filename)
+            
+            # Save movieclips to file 
+            save_movieclips()
+            
+             
 
 
 class LocalSearch(QtGui.QFrame):
@@ -781,7 +794,7 @@ class SeriesProgressbar(QtGui.QProgressBar):
             self.stop()
             self.timer.stop()
 
-    def update_bar(self, current, maximum):        
+    def update_bar(self, current, maximum):
         self.workers[self.sender()] = [current, maximum]
         if not self.timer.isActive():
             self.timer.start(1000);
@@ -808,7 +821,8 @@ class MainWindow(QtGui.QMainWindow):
         statusbar.addPermanentWidget(self.progressbar)        
 
         # Initialize the tool bar
-        self.addToolBar(ToolBar())
+        self.toolbar = ToolBar()
+        self.addToolBar(self.toolbar)
         self.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
         
         # Initialize local search
@@ -827,8 +841,7 @@ class MainWindow(QtGui.QMainWindow):
         self.local_search.localseriestree.itemClicked.connect(self.load_into_local_table)         
         self.seriesinfo.delete_button.clicked.connect(self.delete_series)
         
-        self.load_all_series_into_their_table()
-        
+        self.load_all_series_into_their_table()        
         self.tableview.setModel(None)
         
         self.setWindowTitle("Diribeo")
@@ -865,6 +878,16 @@ class MainWindow(QtGui.QMainWindow):
         messagebox.setDetailedText(filepath)
         messagebox.exec_()
 
+    def association_found_info(self, movie, episode):
+        #TODO
+        messagebox = QtGui.QMessageBox(QtGui.QMessageBox.Information, "Association FOUND", "")
+        messagebox.setText("You must add a movie clip file to an episode.")
+        messagebox.setInformativeText("Make sure that the movie clip you want to add has a proper extension and is not a folder")
+        messagebox.setStandardButtons(QtGui.QMessageBox.Ok) 
+        messagebox.setDetailedText(str(episode))
+        messagebox.exec_()
+
+
     def display_duplicate_warning(self):
         messagebox = QtGui.QMessageBox(QtGui.QMessageBox.Warning, "Movie Clip already associated", "")
         messagebox.setText("The movie clip is already associated with another movie.")
@@ -884,6 +907,8 @@ class MainWindow(QtGui.QMainWindow):
         job.no_association_found.connect(self.no_association_found)
         job.waiting.connect(self.progressbar.waiting, type = QtCore.Qt.QueuedConnection)
         job.finished.connect(self.progressbar.stop, type = QtCore.Qt.QueuedConnection)
+        job.already_exists.connect(self.already_exists_warning)
+        job.association_found.connect(self.association_found_info)  
         
         jobs.append(job)            
         job.start()
@@ -1006,7 +1031,9 @@ class MainWindow(QtGui.QMainWindow):
             
             
     def load_items_into_table(self, items):
-        """ Loads the selected episodes from the clicked series in the onlineserieslist """
+        ''' Loads the selected episodes from the online serieslist into its designated model.
+            If the series already exists the already existing series is loaded into the table view.
+        '''
         
         assert len(items) == 1 # Make sure only one item is passed to this function since more than one item can cause concurrency problems     
         
@@ -1108,8 +1135,6 @@ class SeriesOrganizerEncoder(json.JSONEncoder):
         
         return json.JSONEncoder.default(self, obj)
 
-
-
 class Settings(object):
     def __init__(self, settings = None):
         
@@ -1117,7 +1142,8 @@ class Settings(object):
             self.settings = {"copy_associated_movieclips" : True, 
                              "deployment_folder" : os.path.join(self.get_user_dir(),".diribeo"),
                              "automatic_thumbnail_creation" : False,
-                             "show_all_movieclips" : True}
+                             "show_all_movieclips" : True,
+                             "normalize_names" : True}
         else:
             self.settings = settings      
 
@@ -1128,12 +1154,21 @@ class Settings(object):
         except KeyError:
             pass
 
-    def get_collision_free_filename(self, destination):
+    def get_unique_filename(self, filepath, episode):
         
-        filename = os.path.basename(destination)
-        directory = os.path.dirname(destination)
+        directory, filename = os.path.split(filepath)
+                
+        if self.settings["normalize_names"]:
+            name, ext = os.path.splitext(filename)
+            filename = episode.series[0] + " " + episode.get_descriptor() + " - " + episode.title + ext
         
-        if os.path.isfile(destination):
+        return self.get_collision_free_filename(os.path.join(directory, filename))
+
+    def get_collision_free_filename(self, filepath):
+        
+        directory, filename = os.path.split(filepath)
+        
+        if os.path.isfile(filepath):
             #Collision detected:            
             split = os.path.splitext(filename)            
             index = 1 
@@ -1525,7 +1560,7 @@ class Episode(object):
         return self.title == other.title and self.descriptor == other.descriptor
 
     def get_descriptor(self):
-        return str(self.descriptor[0]) + "x" + str(self.descriptor[1])
+        return str(self.descriptor[0]) + "x" + str('%0.2d' % self.descriptor[1])
 
     def get_movieclips(self):
         try:
