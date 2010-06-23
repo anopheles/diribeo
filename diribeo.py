@@ -26,16 +26,23 @@ logging.basicConfig(filename=log_filename,  format='%(asctime)s %(levelname)s %(
 
 
 class EpisodeTableModel(QtCore.QAbstractTableModel):
-    def __init__(self, parent=None, episodes = None):
+    def __init__(self, series, parent=None):
         QtCore.QAbstractTableModel.__init__(self, parent)
-        if episodes == None:
-            self.episodes = []
-        else:
-            self.episodes = episodes
+        self.series = series        
+        self.episodes = self.series.episodes
 
         self.row_lookup = lambda episode: ["", episode.title, episode.date, episode.plot]
         self.column_lookup = ["", "Title", "Date", "Plot Summary"]
 
+    def insert_episode(self, episode):
+        self.episodes.append(episode)
+        self.insertRows(0,0,None) 
+
+    def insertRows(self, row, count, modelindex):
+        self.beginInsertRows(QtCore.QModelIndex(), row, count)
+        self.endInsertRows()
+        return True    
+    
     def set_generator(self, generator):
         self.generator = generator
 
@@ -75,11 +82,6 @@ class EpisodeTableModel(QtCore.QAbstractTableModel):
             if orientation == Qt.Horizontal:
                 #the column
                 return QtCore.QString(self.column_lookup[section])
-
-    def insertRows(self, row, count, modelindex):
-        self.beginInsertRows(QtCore.QModelIndex(), row, count)
-        self.endInsertRows()
-        return True      
 
 class MovieClipAssociator(QtCore.QThread):
     
@@ -713,13 +715,12 @@ class ModelFiller(QtCore.QThread):
     finished = QtCore.pyqtSignal("PyQt_PyObject")
     update_tree = QtCore.pyqtSignal("PyQt_PyObject")
     
-    def __init__(self, model, series, view, movie = None):
+    def __init__(self, model, view, movie = None):
         QtCore.QThread.__init__(self)
         self.movie = movie
         self.model = model
-        self.series = series
         self.view = view
-
+        self.series = self.model.series
         self.model.set_generator(imdbwrapper.get_episodes(movie))
 
     def run(self): 
@@ -735,9 +736,8 @@ class ModelFiller(QtCore.QThread):
             
 
         for episode, episodenumber in self.model.generator:            
-            self.model.episodes.append(episode)
-            self.series.episodes.append(episode)
-            self.model.insertRows(0,0, QtCore.QModelIndex())
+            self.model.insert_episode(episode)
+            
             self.episode_counter += 1
             if self.episode_counter % 8 == 0:
                 self.progress.emit(self, self.episode_counter, episodenumber)        
@@ -999,14 +999,14 @@ class MainWindow(QtGui.QMainWindow):
             self.tableview.setModel(active_table_models[series]) 
             self.tableview.selectionModel().selectionChanged.connect(self.load_episode_information_at_index)
         except KeyError:                    
-            active_table_models[series] = model = EpisodeTableModel(episodes = series.episodes)
+            active_table_models[series] = model = EpisodeTableModel(series)
             self.tableview.setModel(model)            
             
             
     def load_items_into_table(self, items):
         """ Loads the selected episodes from the clicked series in the onlineserieslist """
         
-        assert len(items) == 1 # Make sure only one item is passed to this function since there are conurrency problems        
+        assert len(items) == 1 # Make sure only one item is passed to this function since more than one item can cause concurrency problems     
         
         for item in items:           
             movie = item.movie
@@ -1016,12 +1016,12 @@ class MainWindow(QtGui.QMainWindow):
             if existing_series is None: 
                 current_series = Series(item.title)
                 series_list.append(current_series)
-                active_table_models[current_series] = model = EpisodeTableModel()
+                active_table_models[current_series] = model = EpisodeTableModel(current_series)
                 self.tableview.setModel(model)
                 self.tableview.selectionModel().selectionChanged.connect(self.load_episode_information_at_index)
                 
                 self.existing_series = current_series                
-                job = ModelFiller(model, current_series, self, movie = movie)
+                job = ModelFiller(model, self, movie = movie)
                 
                 job.finished.connect(self.progressbar.operation_finished, type = QtCore.Qt.QueuedConnection)
                 job.waiting.connect(self.progressbar.waiting, type = QtCore.Qt.QueuedConnection)
