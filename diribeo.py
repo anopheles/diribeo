@@ -12,6 +12,7 @@ import os
 import hashlib
 import logging
 import shutil
+import subprocess
 
 from PyQt4 import QtGui
 from PyQt4 import QtCore
@@ -158,11 +159,11 @@ class MovieClipAssociator(QtCore.QThread):
                 # Update the filepath of the clip            
                 self.clip.filepath = os.path.join(directory, filename)
 
-            if add_to_movieclips :
+            if add_to_movieclips:
                 # Add the clips to the movie clips manager
                 movieclips.add(self.clip)                
                 
-            if move_to_folder or add_to_movielips:
+            if move_to_folder or add_to_movieclips:
                 # Save the movie clips to file
                 save_movieclips()    
                             
@@ -218,10 +219,6 @@ class MovieClipAssigner(QtCore.QThread):
 
 class LocalSearch(QtGui.QFrame):
 
-    waiting_for_movieclip_processing = QtCore.pyqtSignal()
-    finished_movieclip_processing = QtCore.pyqtSignal()
-    
-
     def __init__(self, parent=None):
         QtGui.QFrame.__init__(self, parent)       
 
@@ -251,14 +248,6 @@ class LocalSearch(QtGui.QFrame):
         self.toplevel_items = []
         
         self.setAcceptDrops(True)
-
-    def no_association_found(self):
-        messagebox = QtGui.QMessageBox(QtGui.QMessageBox.Warning, "No Association found", "")
-        messagebox.setText("No association found")
-        messagebox.setInformativeText("ballala")
-        messagebox.setStandardButtons(QtGui.QMessageBox.Ok) 
-        messagebox.setDetailedText("")
-        messagebox.exec_()
         
     def dragEnterEvent(self, event):
         event.acceptProposedAction()
@@ -266,20 +255,9 @@ class LocalSearch(QtGui.QFrame):
     def dragMoveEvent(self, event):
         event.acceptProposedAction()
         
-    def dropEvent(self, event):        
-        try:
-            filepath = os.path.abspath(event.mimeData().urls()[0].toLocalFile())
-            job = MovieClipAssigner(filepath)
-            
-            job.no_association_found.connect(self.no_association_found)
-            job.waiting.connect(self.waiting_for_movieclip_processing)
-            job.finished.connect(self.finished_movieclip_processing)
-            
-            jobs.append(job)            
-            job.start()
-
-        except AttributeError, IndexError:
-            pass
+    def dropEvent(self, event):
+        filepath = os.path.abspath(unicode(event.mimeData().urls()[0].toLocalFile()))
+        mainwindow.find_episode_to_movieclip(filepath)
         event.accept()
 
     def sort_tree(self):
@@ -414,7 +392,11 @@ class MovieClipInformationWidget(QtGui.QFrame):
             self.show()
 
     def open_folder(self):
-        os.startfile(self.movieclip.get_folder())
+        try:
+            os.startfile(self.movieclip.get_folder())
+        except AttributeError:
+            # Not very portable            
+            subprocess.Popen(['nautilus', self.movieclip.get_folder()])
     
     def load_information(self, movieclip):
         self.title.setText(movieclip.get_filename())
@@ -516,9 +498,6 @@ class SeriesInformationControls(QtGui.QWidget):
 
 class SeriesInformationWidget(QtGui.QWidget):
     
-    finished_movieclip_processing = QtCore.pyqtSignal()
-    waiting_for_movieclip_processing = QtCore.pyqtSignal()
-    
     def __init__(self, parent = None):
         QtGui.QWidget.__init__(self, parent)        
         
@@ -583,7 +562,7 @@ class SeriesInformationWidget(QtGui.QWidget):
         else:
             self.rating.setVisible(True)
             self.rating.setText(movie.get_ratings()) 
-            self.plot.setText(str(movie.plot))
+            self.plot.setText(movie.plot)
             self.plot.setVisible(True)
             self.delete_button.setVisible(False)
         
@@ -608,51 +587,11 @@ class SeriesInformationWidget(QtGui.QWidget):
     def dropEvent(self, event):        
         try:
             filepath = event.mimeData().urls()[0].toLocalFile()
-            job = MovieClipAssociator(filepath, self.movie)
-                        
-            job.waiting.connect(self.waiting_for_movieclip_processing)
-            job.finished.connect(self.finished_movieclip_processing)
-                                    
-            job.finished.connect(self.load_information)
-            job.already_exists.connect(self.already_exists_warning) 
-            job.already_exists_in_another.connect(self.display_duplicate_warning)             
-            job.filesystem_error.connect(self.filesystem_error_warning)
-            jobs.append(job)
-            job.start()
+            mainwindow.add_movieclip_to_episode(filepath, self.movie)
             
         except AttributeError, IndexError:
             pass
-        event.accept()        
-
-    def already_exists_warning(self, movie, filepath):
-        messagebox = QtGui.QMessageBox(QtGui.QMessageBox.Warning, "Movie Clip already associated", "")
-        messagebox.setText("You're trying to assign a movie clip to the same movie multiple times.")
-        messagebox.setInformativeText("The movie clip (" + os.path.basename(filepath) + ") is already associated with this episode")
-        messagebox.setStandardButtons(QtGui.QMessageBox.Ok) 
-        messagebox.setDetailedText(filepath)
-        messagebox.exec_()
-
-    def filesystem_error_warning(self, movie, filepath):
-        messagebox = QtGui.QMessageBox(QtGui.QMessageBox.Warning, "Filesystem Error", "")
-        messagebox.setText("You must add a movie clip file to an episode.")
-        messagebox.setInformativeText("Make sure that the movie clip you want to add has a proper extension and is not a folder")
-        messagebox.setStandardButtons(QtGui.QMessageBox.Ok) 
-        messagebox.setDetailedText(filepath)
-        messagebox.exec_()
-
-    def display_duplicate_warning(self):
-        messagebox = QtGui.QMessageBox(QtGui.QMessageBox.Warning, "Movie Clip already associated", "")
-        messagebox.setText("The movie clip is already associated with another movie.")
-        messagebox.setInformativeText("Are you sure you want to assign this movie clip to this movie")
-        messagebox.setStandardButtons(QtGui.QMessageBox.Ok | QtGui.QMessageBox.Cancel) 
-        result = messagebox.exec_()
-        if result == QtGui.QMessageBox.Ok:
-            self.sender().assign()
-        else:
-            self.sender().finished.emit(self.sender().movie)
-            self.sender().quit()
-
-
+        event.accept() 
 
             
 class EpisodeViewWidget(QtGui.QTableView):    
@@ -852,7 +791,7 @@ class MainWindow(QtGui.QMainWindow):
         self.tableview = EpisodeViewWidget()
         self.setCentralWidget(self.tableview)
 
-        #initalize the status bar
+        # Initialize the status bar
         statusbar = QtGui.QStatusBar()
         statusbar.showMessage("Ready")
         self.setStatusBar(statusbar)
@@ -864,7 +803,7 @@ class MainWindow(QtGui.QMainWindow):
         
         statusbar.addPermanentWidget(self.progressbar)        
 
-        #initalize the tool bar
+        # Initialize the tool bar
         self.addToolBar(ToolBar())
         self.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
         
@@ -876,19 +815,13 @@ class MainWindow(QtGui.QMainWindow):
         series_info_dock = SeriesInformationDock()
         self.seriesinfo =  series_info_dock.seriesinfo
         
-        # Manage the docs
+        # Manage the docks
         self.addDockWidget(Qt.LeftDockWidgetArea, local_search_dock)                            
         self.addDockWidget(Qt.RightDockWidgetArea, series_info_dock)
        
         self.local_search_dock.wizard.selection_finished.connect(self.load_items_into_table)
         self.local_search.localseriestree.itemClicked.connect(self.load_into_local_table)         
         self.seriesinfo.delete_button.clicked.connect(self.delete_series)
-        
-        self.seriesinfo.waiting_for_movieclip_processing.connect(self.progressbar.waiting)        
-        self.seriesinfo.finished_movieclip_processing.connect(self.progressbar.stop)
-        
-        self.local_search.finished_movieclip_processing.connect(self.progressbar.stop)
-        self.local_search.waiting_for_movieclip_processing.connect(self.progressbar.waiting)
         
         self.load_all_series_into_their_table()
         
@@ -897,7 +830,67 @@ class MainWindow(QtGui.QMainWindow):
         self.setWindowTitle("Diribeo")
         self.resize_to_percentage(66)
         self.center()
+
+    def no_association_found(self):
+        messagebox = QtGui.QMessageBox(QtGui.QMessageBox.Warning, "No Association found", "")
+        messagebox.setText("No association found")
+        messagebox.setInformativeText("ballala")
+        messagebox.setStandardButtons(QtGui.QMessageBox.Ok) 
+        messagebox.setDetailedText("")
+        messagebox.exec_()
+
+    def already_exists_warning(self, movie, filepath):
+        messagebox = QtGui.QMessageBox(QtGui.QMessageBox.Warning, "Movie Clip already associated", "")
+        messagebox.setText("You're trying to assign a movie clip to the same movie multiple times.")
+        messagebox.setInformativeText("The movie clip (" + os.path.basename(filepath) + ") is already associated with this episode")
+        messagebox.setStandardButtons(QtGui.QMessageBox.Ok) 
+        messagebox.setDetailedText(filepath)
+        messagebox.exec_()
+
+    def filesystem_error_warning(self, movie, filepath):
+        messagebox = QtGui.QMessageBox(QtGui.QMessageBox.Warning, "Filesystem Error", "")
+        messagebox.setText("You must add a movie clip file to an episode.")
+        messagebox.setInformativeText("Make sure that the movie clip you want to add has a proper extension and is not a folder")
+        messagebox.setStandardButtons(QtGui.QMessageBox.Ok) 
+        messagebox.setDetailedText(filepath)
+        messagebox.exec_()
+
+    def display_duplicate_warning(self):
+        messagebox = QtGui.QMessageBox(QtGui.QMessageBox.Warning, "Movie Clip already associated", "")
+        messagebox.setText("The movie clip is already associated with another movie.")
+        messagebox.setInformativeText("Are you sure you want to assign this movie clip to this movie")
+        messagebox.setStandardButtons(QtGui.QMessageBox.Ok | QtGui.QMessageBox.Cancel) 
+        result = messagebox.exec_()
+        if result == QtGui.QMessageBox.Ok:
+            self.sender().assign()
+        else:
+            self.sender().finished.emit(self.sender().movie)
+            self.sender().quit()
+
+
+    def find_episode_to_movieclip(self, filepath):
+        job = MovieClipAssigner(filepath)
         
+        job.no_association_found.connect(self.no_association_found)
+        
+        jobs.append(job)            
+        job.start()
+
+    def add_movieclip_to_episode(self, filepath, movie):
+        
+        job = MovieClipAssociator(filepath, movie) 
+        
+        #job.waiting.connect(self.progressbar.waiting, type = QtCore.Qt.QueuedConnection)
+        #job.finished.connect(self.progressbar.finished, type = QtCore.Qt.QueuedConnection)
+
+        job.finished.connect(self.seriesinfo.load_information)
+        job.already_exists.connect(self.already_exists_warning) 
+        job.already_exists_in_another.connect(self.display_duplicate_warning)             
+        job.filesystem_error.connect(self.filesystem_error_warning)
+        
+        jobs.append(job)
+        job.start()
+    
     def delete_series(self):                
         series = self.existing_series       
         
@@ -1321,7 +1314,7 @@ class IMDBWrapper(object):
         import imdb
 
         #Create the object that will be used to access the IMDb's database.
-        self.ia  = imdb.IMDb(loggginLevel = "critical") # by default access the web.        
+        self.ia  = imdb.IMDb(loggginLevel = "critical", proxy = "") # by default access the web.        
 
 
     def imdb_tv_series_to_series(self, imdb_identifier):        
