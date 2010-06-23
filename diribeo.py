@@ -84,6 +84,9 @@ class EpisodeTableModel(QtCore.QAbstractTableModel):
                 return QtCore.QString(self.column_lookup[section])
 
 class MovieClipAssociator(QtCore.QThread):
+    ''' This class is responsible for associating a movie clip with a given episode.
+        It emits various signals which can be used for feedback.
+    '''
     
     finished = QtCore.pyqtSignal("PyQt_PyObject")
     waiting = QtCore.pyqtSignal()
@@ -711,8 +714,8 @@ class ModelFiller(QtCore.QThread):
     # Initialize various signals.
     waiting = QtCore.pyqtSignal()
     insert_into_tree = QtCore.pyqtSignal("PyQt_PyObject")
-    progress = QtCore.pyqtSignal("PyQt_PyObject", int, int)
-    finished = QtCore.pyqtSignal("PyQt_PyObject")
+    progress = QtCore.pyqtSignal(int, int)
+    finished = QtCore.pyqtSignal()
     update_tree = QtCore.pyqtSignal("PyQt_PyObject")
     
     def __init__(self, model, view, movie = None):
@@ -725,7 +728,7 @@ class ModelFiller(QtCore.QThread):
 
     def run(self): 
                     
-        self.episode_counter = 0
+        episode_counter = 0
 
         # Make the progress bar idle
         self.insert_into_tree.emit(self.series)  
@@ -736,14 +739,13 @@ class ModelFiller(QtCore.QThread):
             
 
         for episode, episodenumber in self.model.generator:            
-            self.model.insert_episode(episode)
-            
-            self.episode_counter += 1
-            if self.episode_counter % 8 == 0:
-                self.progress.emit(self, self.episode_counter, episodenumber)        
+            self.model.insert_episode(episode)            
+            episode_counter += 1
+            if episode_counter % 8 == 0:
+                self.progress.emit(episode_counter, episodenumber)        
                 
         save_series()            
-        self.finished.emit(self)
+        self.finished.emit()
         self.update_tree.emit(self.series)
 
 class SeriesProgressbar(QtGui.QProgressBar):
@@ -769,9 +771,9 @@ class SeriesProgressbar(QtGui.QProgressBar):
         self.setValue(current)
         self.setMaximum(maximum)        
 
-    def operation_finished(self, thread):
+    def operation_finished(self):
         try:
-            del self.workers[thread]
+            del self.workers[self.sender()]
         except KeyError:
             # Thread has already been deleted
             pass
@@ -779,8 +781,8 @@ class SeriesProgressbar(QtGui.QProgressBar):
             self.stop()
             self.timer.stop()
 
-    def update_bar(self, thread, current, maximum):        
-        self.workers[thread] = [current, maximum]
+    def update_bar(self, current, maximum):        
+        self.workers[self.sender()] = [current, maximum]
         if not self.timer.isActive():
             self.timer.start(1000);
 
