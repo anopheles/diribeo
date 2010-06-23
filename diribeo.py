@@ -256,9 +256,12 @@ class LocalSearch(QtGui.QFrame):
         event.acceptProposedAction()
         
     def dropEvent(self, event):
-        filepath = os.path.abspath(unicode(event.mimeData().urls()[0].toLocalFile()))
-        mainwindow.find_episode_to_movieclip(filepath)
-        event.accept()
+        try:
+            filepath = os.path.abspath(unicode(event.mimeData().urls()[0].toLocalFile()))
+            mainwindow.find_episode_to_movieclip(filepath)
+            event.accept()
+        except IndexError:
+            pass
 
     def sort_tree(self):
         # This also sorts children which produces a unwanted sorting
@@ -729,8 +732,7 @@ class ModelFiller(QtCore.QThread):
         self.view.seriesinfo.load_information(self.series)
         imdbwrapper.get_more_information(self.series, self.movie)
         self.view.seriesinfo.load_information(self.series)
-              
-
+            
 
         for episode, episodenumber in self.model.generator:            
             self.model.episodes.append(episode)
@@ -838,6 +840,12 @@ class MainWindow(QtGui.QMainWindow):
         messagebox.setStandardButtons(QtGui.QMessageBox.Ok) 
         messagebox.setDetailedText("")
         messagebox.exec_()
+        
+        try:
+            self.sender().finished.emit()
+        except AttributeError:
+            pass
+            
 
     def already_exists_warning(self, movie, filepath):
         messagebox = QtGui.QMessageBox(QtGui.QMessageBox.Warning, "Movie Clip already associated", "")
@@ -872,6 +880,8 @@ class MainWindow(QtGui.QMainWindow):
         job = MovieClipAssigner(filepath)
         
         job.no_association_found.connect(self.no_association_found)
+        job.waiting.connect(self.progressbar.waiting, type = QtCore.Qt.QueuedConnection)
+        job.finished.connect(self.progressbar.stop, type = QtCore.Qt.QueuedConnection)
         
         jobs.append(job)            
         job.start()
@@ -880,8 +890,8 @@ class MainWindow(QtGui.QMainWindow):
         
         job = MovieClipAssociator(filepath, movie) 
         
-        #job.waiting.connect(self.progressbar.waiting, type = QtCore.Qt.QueuedConnection)
-        #job.finished.connect(self.progressbar.finished, type = QtCore.Qt.QueuedConnection)
+        job.waiting.connect(self.progressbar.waiting, type = QtCore.Qt.QueuedConnection)
+        job.finished.connect(self.progressbar.stop, type = QtCore.Qt.QueuedConnection)
 
         job.finished.connect(self.seriesinfo.load_information)
         job.already_exists.connect(self.already_exists_warning) 
