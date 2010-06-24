@@ -13,11 +13,13 @@ import hashlib
 import logging
 import shutil
 import subprocess
+import functools
 
 from PyQt4 import QtGui
 from PyQt4 import QtCore
 from PyQt4.QtCore import Qt
-from collections import defaultdict
+from operator import itemgetter, attrgetter
+
 
 
 # Initialize the logger
@@ -94,20 +96,29 @@ class MovieClipAssociator(QtCore.QThread):
     filesystem_error = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject")
     already_exists_in_another = QtCore.pyqtSignal() # Emitted when movieclip is in _another_ episode
     
-    def __init__(self, filepath, movie):
+    def __init__(self, filepath, episode, movieclip = None):
         QtCore.QThread.__init__(self)
-        self.movie = movie
+        self.episode = episode
         self.filepath = unicode(filepath) 
+        
+        if movieclip is not None:
+            self.clip = movieclip
+            # Update identifier
+            self.clip.identifier = self.episode.identifier
+        else:
+            self.clip = None
+                        
 
     def run(self):
-        self.identifier = self.movie.get_identifier()
+        self.identifier = self.episode.get_identifier()
         
         if not os.path.isfile(self.filepath) or not settings.is_valid_file_extension(self.filepath):
-            self.filesystem_error.emit(self.movie, self.filepath)
+            self.filesystem_error.emit(self.episode, self.filepath)
         else:
             self.waiting.emit()
             
-            self.clip = MovieClip(self.filepath, identifier = self.movie.identifier)
+            if self.clip is None:
+                self.clip = MovieClip(self.filepath, identifier = self.episode.identifier)
             
             # Check and see if the movieclip is already associated with _another_ movie and display warning
             unique = movieclips.check_unique(self.clip, self.identifier)
@@ -129,14 +140,14 @@ class MovieClipAssociator(QtCore.QThread):
             filename = os.path.basename(self.filepath)
             
             # Calculate hypothetical filepath
-            destination = settings.calculate_filepath(self.movie, filename)
+            destination = settings.calculate_filepath(self.episode, filename)
             directory = os.path.dirname(destination)
             
             if self.clip in movieclips[self.identifier]:
                 
                 if os.path.isfile(destination):
                     # a)
-                    self.already_exists.emit(self.movie, self.filepath)
+                    self.already_exists.emit(self.episode, self.filepath)
                     move_to_folder = False
                     add_to_movieclips = False                    
                 else:
@@ -156,10 +167,10 @@ class MovieClipAssociator(QtCore.QThread):
             
             if move_to_folder:
                 # Check if there is already a file with the same name, normalizes file name if set to do so
-                filename = settings.get_unique_filename(destination, self.movie)
+                filename = settings.get_unique_filename(destination, self.episode)
                 
                 # Move the file to the actual folder
-                settings.move_file_to_folder_structure(self.movie, self.filepath, new_filename = filename)
+                settings.move_file_to_folder_structure(self.episode, self.filepath, new_filename = filename)
                 
                 # Update the filepath of the clip            
                 self.clip.filepath = os.path.join(directory, filename)
@@ -172,7 +183,7 @@ class MovieClipAssociator(QtCore.QThread):
                 # Save the movie clips to file
                 save_movieclips()    
                             
-            self.finished.emit(self.movie)
+            self.finished.emit(self.episode)
 
 
 class MovieClipAssigner(QtCore.QThread):
@@ -187,23 +198,106 @@ class MovieClipAssigner(QtCore.QThread):
     no_association_found = QtCore.pyqtSignal()
     already_exists = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject") # This signal is emitted when the movieclip is already in the dict and in the folder
     association_found = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject")
+    possible_matches_found = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject", "PyQt_PyObject")  # This signal is emitted when possible episodes are found 
+    filesystem_error = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject")
     
     def __init__(self, filepath):
         QtCore.QThread.__init__(self)
         self.filepath = filepath
         
     def run(self):
-        self.waiting.emit()
-        
-        movieclip = MovieClip(self.filepath)        
-        possible_episodes, possible_movieclips = movieclips.get_episode_and_movieclip_list_with_matching_checksums(movieclip.checksum)        
-        if len(possible_episodes) == 0:
-            self.no_association_found.emit()
+        if not os.path.isfile(self.filepath) or not settings.is_valid_file_extension(self.filepath):
+            self.filesystem_error.emit(None, self.filepath)
         else:
-            self.assign(possible_episodes[0], possible_movieclips[0])
-           
-        self.finished.emit()
+            self.waiting.emit()
+            
+            self.movieclip = MovieClip(self.filepath)
+                    
+            episode_dict = movieclips.get_episode_dict_with_matching_checksums(self.movieclip.checksum)      
+                    
+            if len(episode_dict.items()) == 0 or episode_dict.items()[0][0] is None:
+                self.no_association_found.emit()            
+            else:
+                # Assign first movieclip to first episode and first movieclip found
+                self.assign(episode_dict.items()[0][0], episode_dict.items()[0][1])
+               
+            self.finished.emit()
 
+    
+    def search_for_match(self):
+        ''' This function searches for a match in all given episodes. It returns
+            a list of possible episodes from which the user can choose one.
+            It heavily uses the damerau–levenshtein distance
+        '''
+        
+        #TODO CLEAN UP
+        
+        filename = os.path.basename(self.filepath)
+        
+        episode_list = []
+        for series in series_list:
+            for episode in series.episodes:
+                episode_list.append(episode)
+
+        answer_dict = {}
+        for index, episode in enumerate(episode_list):
+            title = episode.get_normalized_name()
+            score = self.dameraulevenshtein(title, filename)
+            answer_dict[episode] = score
+
+
+        
+        items = answer_dict.items()
+        items.sort(key = itemgetter(1))
+
+        self.possible_matches_found.emit(self.filepath, items, self.movieclip)
+    
+    def dameraulevenshtein(self, seq1, seq2):
+        """Calculate the Damerau-Levenshtein distance between sequences.
+    
+        This distance is the number of additions, deletions, substitutions,
+        and transpositions needed to transform the first sequence into the
+        second. Although generally used with strings, any sequences of
+        comparable objects will work.
+    
+        Transpositions are exchanges of *consecutive* characters; all other
+        operations are self-explanatory.
+    
+        This implementation is O(N*M) time and O(M) space, for N and M the
+        lengths of the two sequences.
+    
+        >>> dameraulevenshtein('ba', 'abc')
+        2
+        >>> dameraulevenshtein('fee', 'deed')
+        2
+    
+        It works with arbitrary sequences too:
+        >>> dameraulevenshtein('abcd', ['b', 'a', 'c', 'd', 'e'])
+        2
+        """
+        # codesnippet:D0DE4716-B6E6-4161-9219-2903BF8F547F
+        # Conceptually, this is based on a len(seq1) + 1 * len(seq2) + 1 matrix.
+        # However, only the current and two previous rows are needed at once,
+        # so we only store those.
+        oneago = None
+        thisrow = range(1, len(seq2) + 1) + [0]
+        for x in xrange(len(seq1)):
+            # Python lists wrap around for negative indices, so put the
+            # leftmost column at the *end* of the list. This matches with
+            # the zero-indexed strings and saves extra calculation.
+            twoago, oneago, thisrow = oneago, thisrow, [0] * len(seq2) + [x + 1]
+            for y in xrange(len(seq2)):
+                delcost = oneago[y] + 1
+                addcost = thisrow[y - 1] + 1
+                subcost = oneago[y - 1] + (seq1[x] != seq2[y])
+                thisrow[y] = min(delcost, addcost, subcost)
+                # This block deals with transpositions
+                if (x > 0 and y > 0 and seq1[x] == seq2[y - 1]
+                    and seq1[x-1] == seq2[y] and seq1[x] != seq2[y]):
+                    thisrow[y] = min(thisrow[y], twoago[y - 2] + 1)
+        return thisrow[len(seq2) - 1]
+    
+    
     def assign(self, episode, movieclip):        
         
         # Calculate destination of movieclip
@@ -852,12 +946,16 @@ class MainWindow(QtGui.QMainWindow):
         messagebox = QtGui.QMessageBox(QtGui.QMessageBox.Warning, "No Association found", "")
         messagebox.setText("No association found")
         messagebox.setInformativeText("ballala")
+        feeling_lucky_button = messagebox.addButton("Feeling Lucky", QtGui.QMessageBox.ActionRole)
         messagebox.setStandardButtons(QtGui.QMessageBox.Ok) 
         messagebox.setDetailedText("")
         messagebox.exec_()
         
         try:
-            self.sender().finished.emit()
+            if messagebox.clickedButton() == feeling_lucky_button:
+                self.sender().search_for_match()
+            else:
+                self.sender().finished.emit()
         except AttributeError:
             pass
             
@@ -900,6 +998,14 @@ class MainWindow(QtGui.QMainWindow):
             self.sender().finished.emit(self.sender().movie)
             self.sender().quit()
 
+    def start_association_wizard(self, filepath, episodes, movieclip):
+        self.filepath = filepath
+        self.movieclip = movieclip
+        association_wizard = AssociationWizard(episodes, os.path.basename(filepath))
+        association_wizard.selection_finished.connect(functools.partial(self.add_movieclip_to_episode, self.filepath, movieclip = self.movieclip))
+        association_wizard.show()
+        association_wizard.exec_()
+
 
     def find_episode_to_movieclip(self, filepath):
         job = MovieClipAssigner(filepath)
@@ -908,14 +1014,15 @@ class MainWindow(QtGui.QMainWindow):
         job.waiting.connect(self.progressbar.waiting, type = QtCore.Qt.QueuedConnection)
         job.finished.connect(self.progressbar.stop, type = QtCore.Qt.QueuedConnection)
         job.already_exists.connect(self.already_exists_warning)
-        job.association_found.connect(self.association_found_info)  
+        job.association_found.connect(self.association_found_info) 
+        job.possible_matches_found.connect(self.start_association_wizard)
+        job.filesystem_error.connect(self.filesystem_error_warning) 
         
         jobs.append(job)            
         job.start()
 
-    def add_movieclip_to_episode(self, filepath, movie):
-        
-        job = MovieClipAssociator(filepath, movie) 
+    def add_movieclip_to_episode(self, filepath, episode, movieclip = None):        
+        job = MovieClipAssociator(filepath, episode, movieclip = movieclip) 
         
         job.waiting.connect(self.progressbar.waiting, type = QtCore.Qt.QueuedConnection)
         job.finished.connect(self.progressbar.stop, type = QtCore.Qt.QueuedConnection)
@@ -1066,6 +1173,48 @@ class MainWindow(QtGui.QMainWindow):
 
 
 
+class AssociationWizard(QtGui.QWizard):
+    selection_finished = QtCore.pyqtSignal("PyQt_PyObject")
+    
+    def __init__(self, episodes, filename, parent = None):
+       QtGui.QWizard.__init__(self, parent)
+       self.episode_chooser = EpisodeChooser(episodes, filename)
+       self.addPage(self.episode_chooser)
+       self.accepted.connect(self.wizard_complete)
+
+    def wizard_complete(self):
+        self.selection_finished.emit(self.episode_chooser.get_selected_episode())
+
+class EpisodeChooser(QtGui.QWizardPage):    
+    
+    def __init__(self, episodes_scores, filename, parent = None):
+        QtGui.QWizardPage.__init__(self, parent) 
+        self.episodes_scores = episodes_scores
+        self.setTitle("Episode Chooser")
+        self.setSubTitle("If you're only seeing crap, its probably your fault. \nThe original filename is: " + filename)
+        layout = QtGui.QVBoxLayout()
+        self.setLayout(layout)
+        self.episode_list = QtGui.QListWidget()
+        layout.addWidget(self.episode_list)
+        
+        for episode_score in episodes_scores:
+            self.episode_list.addItem(EpisodeWidgetItem(episode_score))
+
+        self.episode_list.setSelection(QtCore.QRect(0,0,1,1), QtGui.QItemSelectionModel.Select)
+        
+    def get_selected_episode(self):
+        try:
+            return self.episode_list.selectedItems()[0].episode
+        except IndexError:
+            pass
+
+class EpisodeWidgetItem(QtGui.QListWidgetItem):
+    def __init__(self, episode_score,  parent = None):
+        QtGui.QListWidgetItem.__init__(self, parent)
+        episode, score = episode_score
+        self.episode = episode        
+        self.setText(episode.get_normalized_name() + " \t\tScore: " + str(score))
+
 class ToolBar(QtGui.QToolBar):
     def __init__(self, parent = None):
         QtGui.QToolBar.__init__(self, parent)
@@ -1148,20 +1297,26 @@ class Settings(object):
             self.settings = settings      
 
 
+        self.valid_extensions = ("mkv", "avi", "mpgeg", "mpg", "wmv")
+
     def get(self, attribute_name):
         try:
             return self.settings[attribute_name]
         except KeyError:
             pass
 
+    def get_normalized_filename(self, filename, episode):
+         name, ext = os.path.splitext(filename)
+         return episode.get_normalized_name() + ext
+    
+    
     def get_unique_filename(self, filepath, episode):
         
         directory, filename = os.path.split(filepath)
                 
         if self.settings["normalize_names"]:
-            name, ext = os.path.splitext(filename)
-            filename = episode.series[0] + " " + episode.get_descriptor() + " - " + episode.title + ext
-        
+           filename = self.get_normalized_filename(filename, episode)
+           
         return self.get_collision_free_filename(os.path.join(directory, filename))
 
     def get_collision_free_filename(self, filepath):
@@ -1194,17 +1349,19 @@ class Settings(object):
         filename = os.path.basename(filepath)
         name, ext = os.path.splitext(filename)
         
-        if ext.lower().endswith(("mkv", "avi", "mpgeg", "mpg", "wmv")):
+        if ext.lower().endswith(self.valid_extensions):
             return True
 
 
-    def calculate_filepath(self, episode, filename):
+    def calculate_filepath(self, episode, filename, normalize = True):
         ''' Calculates the destination filepath of a given episode '''
+        if self.settings["normalize_names"] and normalize:
+            filename = self.get_normalized_filename(filename, episode)
         return os.path.join(self.settings["deployment_folder"], episode.series[0], "Season " + str(episode.descriptor[0]), filename)
 
 
     def move_file_to_folder_structure(self, episode, filepath, new_filename = None):
-        ''' This method is responsible for moving the given file (filepath) to the calculated destination.
+        ''' This method is responsible for moving the given file, specified via filepath, to the calculated destination.
             It is also possible to define a new filename with the help of the new_filename parameter.
         '''
         
@@ -1213,7 +1370,9 @@ class Settings(object):
         else:
             filename = os.path.basename(filepath)
         
-        destination = self.calculate_filepath(episode, filename)
+        # Force normalization off
+        destination = self.calculate_filepath(episode, filename, normalize = False)
+
         directory = os.path.dirname(destination)
         
         if not os.path.exists(directory):
@@ -1547,7 +1706,7 @@ class Episode(object):
 
 
     def __repr__(self):
-        return "E(" + str(self.series) + " - " + str(self.title) + " " + str(self.descriptor[0]) + "x" + str(self.descriptor[1]) +  " " + str(self.date) + ")"
+        return "E(" + str(self.series[0]) + " - " + str(self.title) + " " + str(self.descriptor[0]) + "x" + str(self.descriptor[1]) +  " " + str(self.date) + ")"
 
     def __cmp__(self, other):
         try:
@@ -1566,7 +1725,10 @@ class Episode(object):
         try:
             return movieclips[self.get_identifier()]
         except KeyError:
-            pass
+            pass    
+    
+    def get_normalized_name(self):
+        return self.series[0] + " " + self.get_descriptor() + " - " + self.title
     
     def get_identifier(self):
         # Use the first key as unique identifier. Note that this is propably not a good idea!
@@ -1599,21 +1761,21 @@ class MovieClipManager(object):
         return [] # Returns an empty list, to produce a empty iterator
 
     
-    def get_episode_and_movieclip_list_with_matching_checksums(self, checksum):
+    def get_episode_dict_with_matching_checksums(self, checksum):
         ''' This function searches for the given checksum in the internal data structures.
             It returns two lists as a tuple. The first beign a list of episodes. The second
             beign a list of movie clips which match the checksum.
         '''
-        episode_list = []
-        movieclip_list = []
+        
+        episode_dict = {} # episode are keys, movieclips are values
+        
         for implementation in self.dictionary:
             for key in self.dictionary[implementation]:
                 for movieclip in self.dictionary[implementation][key]:
                     if movieclip.checksum == checksum:
-                        movieclip_list.append(movieclip)
-                        episode_list.append(self.from_movieclip_to_episode(movieclip))
+                        episode_dict[self.from_movieclip_to_episode(movieclip)] = movieclip 
                        
-        return episode_list, movieclip_list
+        return episode_dict
     
     
     def from_movieclip_to_episode(self, movieclip):
