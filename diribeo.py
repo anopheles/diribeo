@@ -216,7 +216,8 @@ class MovieClipAssigner(QtCore.QThread):
             episode_dict = movieclips.get_episode_dict_with_matching_checksums(self.movieclip.checksum)      
                     
             if len(episode_dict.items()) == 0 or episode_dict.items()[0][0] is None:
-                self.no_association_found.emit()            
+                self.no_association_found.emit()
+                self.exec_()            
             else:
                 # Assign first movieclip to first episode and first movieclip found
                 self.assign(episode_dict.items()[0][0], episode_dict.items()[0][1])
@@ -229,8 +230,10 @@ class MovieClipAssigner(QtCore.QThread):
             a list of possible episodes from which the user can choose one.
             It heavily uses the damerau–levenshtein distance
         '''
-        
+
+
         #TODO CLEAN UP
+        self.waiting.emit()
         
         filename = os.path.basename(self.filepath)
         
@@ -250,7 +253,10 @@ class MovieClipAssigner(QtCore.QThread):
         items = answer_dict.items()
         items.sort(key = itemgetter(1))
 
+        self.finished.emit()
+        
         self.possible_matches_found.emit(self.filepath, items, self.movieclip)
+        
     
     def dameraulevenshtein(self, seq1, seq2):
         """Calculate the Damerau-Levenshtein distance between sequences.
@@ -946,13 +952,13 @@ class MainWindow(QtGui.QMainWindow):
         messagebox = QtGui.QMessageBox(QtGui.QMessageBox.Warning, "No Association found", "")
         messagebox.setText("No association found")
         messagebox.setInformativeText("ballala")
-        feeling_lucky_button = messagebox.addButton("Feeling Lucky", QtGui.QMessageBox.ActionRole)
+        feeling_lucky_button = messagebox.addButton("Feeling Lucky", QtGui.QMessageBox.AcceptRole)
         messagebox.setStandardButtons(QtGui.QMessageBox.Ok) 
         messagebox.setDetailedText("")
         messagebox.exec_()
         
         try:
-            if messagebox.clickedButton() == feeling_lucky_button:
+            if messagebox.clickedButton() == feeling_lucky_button:                
                 self.sender().search_for_match()
             else:
                 self.sender().finished.emit()
@@ -1002,7 +1008,7 @@ class MainWindow(QtGui.QMainWindow):
         self.filepath = filepath
         self.movieclip = movieclip
         association_wizard = AssociationWizard(episodes, os.path.basename(filepath))
-        association_wizard.selection_finished.connect(functools.partial(self.add_movieclip_to_episode, self.filepath, movieclip = self.movieclip))
+        association_wizard.selection_finished.connect(functools.partial(self.add_movieclip_to_episode, self.filepath, movieclip = self.movieclip), Qt.QueuedConnection)
         association_wizard.show()
         association_wizard.exec_()
 
@@ -1013,10 +1019,10 @@ class MainWindow(QtGui.QMainWindow):
         job.no_association_found.connect(self.no_association_found)
         job.waiting.connect(self.progressbar.waiting, type = QtCore.Qt.QueuedConnection)
         job.finished.connect(self.progressbar.stop, type = QtCore.Qt.QueuedConnection)
-        job.already_exists.connect(self.already_exists_warning)
-        job.association_found.connect(self.association_found_info) 
-        job.possible_matches_found.connect(self.start_association_wizard)
-        job.filesystem_error.connect(self.filesystem_error_warning) 
+        job.already_exists.connect(self.already_exists_warning, Qt.QueuedConnection)
+        job.association_found.connect(self.association_found_info, Qt.QueuedConnection) 
+        job.possible_matches_found.connect(self.start_association_wizard, Qt.QueuedConnection)
+        job.filesystem_error.connect(self.filesystem_error_warning, Qt.QueuedConnection) 
         
         jobs.append(job)            
         job.start()
@@ -1026,11 +1032,10 @@ class MainWindow(QtGui.QMainWindow):
         
         job.waiting.connect(self.progressbar.waiting, type = QtCore.Qt.QueuedConnection)
         job.finished.connect(self.progressbar.stop, type = QtCore.Qt.QueuedConnection)
-
-        job.finished.connect(self.seriesinfo.load_information)
-        job.already_exists.connect(self.already_exists_warning) 
-        job.already_exists_in_another.connect(self.display_duplicate_warning)             
-        job.filesystem_error.connect(self.filesystem_error_warning)
+        job.finished.connect(self.seriesinfo.load_information, Qt.QueuedConnection)
+        job.already_exists.connect(self.already_exists_warning, Qt.QueuedConnection) 
+        job.already_exists_in_another.connect(self.display_duplicate_warning, Qt.QueuedConnection)             
+        job.filesystem_error.connect(self.filesystem_error_warning, Qt.QueuedConnection)
         
         jobs.append(job)
         job.start()
@@ -1212,8 +1217,10 @@ class EpisodeWidgetItem(QtGui.QListWidgetItem):
     def __init__(self, episode_score,  parent = None):
         QtGui.QListWidgetItem.__init__(self, parent)
         episode, score = episode_score
-        self.episode = episode        
-        self.setText(episode.get_normalized_name() + " \t\tScore: " + str(score))
+        self.episode = episode     
+        title = episode.get_normalized_name()
+        self.setText(title)
+        self.setToolTip("Score: " + str(score))    
 
 class ToolBar(QtGui.QToolBar):
     def __init__(self, parent = None):
