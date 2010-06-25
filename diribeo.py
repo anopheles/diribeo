@@ -18,7 +18,7 @@ import functools
 from PyQt4 import QtGui
 from PyQt4 import QtCore
 from PyQt4.QtCore import Qt
-from operator import itemgetter, attrgetter
+from operator import itemgetter
 
 
 
@@ -830,6 +830,7 @@ class ModelFiller(QtCore.QThread):
     progress = QtCore.pyqtSignal(int, int)
     finished = QtCore.pyqtSignal()
     update_tree = QtCore.pyqtSignal("PyQt_PyObject")
+    update_tableview = QtCore.pyqtSignal("PyQt_PyObject")
     
     def __init__(self, model, view, movie = None):
         QtCore.QThread.__init__(self)
@@ -860,6 +861,7 @@ class ModelFiller(QtCore.QThread):
         save_series()            
         self.finished.emit()
         self.update_tree.emit(self.series)
+        self.update_tableview.emit(self.model)
 
 class SeriesProgressbar(QtGui.QProgressBar):
     def __init__(self, parent=None, tablemodel = None):
@@ -1141,7 +1143,6 @@ class MainWindow(QtGui.QMainWindow):
             active_table_models[series] = model = EpisodeTableModel(series)
             self.tableview.setModel(model)            
             
-            
     def load_items_into_table(self, items):
         ''' Loads the selected episodes from the online serieslist into its designated model.
             If the series already exists the already existing series is loaded into the table view.
@@ -1158,7 +1159,7 @@ class MainWindow(QtGui.QMainWindow):
                 current_series = Series(item.title)
                 series_list.append(current_series)
                 active_table_models[current_series] = model = EpisodeTableModel(current_series)
-                self.tableview.setModel(model)
+                #self.tableview.setModel(model)
                 self.tableview.selectionModel().selectionChanged.connect(self.load_episode_information_at_index)
                 
                 self.existing_series = current_series                
@@ -1168,6 +1169,7 @@ class MainWindow(QtGui.QMainWindow):
                 job.waiting.connect(self.progressbar.waiting, type = QtCore.Qt.QueuedConnection)
                 job.progress.connect(self.progressbar.update_bar, type = QtCore.Qt.QueuedConnection)
                 job.update_tree.connect(self.local_search.update_tree, type = QtCore.Qt.QueuedConnection)
+                job.update_tableview.connect(self.tableview.setModel)
                 job.insert_into_tree.connect(self.local_search.insert_top_level_item, type = QtCore.Qt.QueuedConnection)
 
                 jobs.append(job)
@@ -1228,6 +1230,36 @@ class ToolBar(QtGui.QToolBar):
         icon = QtGui.QIcon("images/network-error.png")
         action = QtGui.QAction(icon, "test", self)
         self.addAction(action)
+
+
+class AnimatedLabel(QtGui.QLabel):    
+    # Adapted from http://www.qtcentre.org/threads/26911-PNG-based-animation
+    def __init__(self, image, imageCount_x, imageCount_y, parent=None):
+        QtGui.QLabel.__init__(self, parent)
+    
+        self.pixmaps = []
+        self.currentPixmap = 1
+        self.timer = QtCore.QTimer()
+        img = QtGui.QImage()
+        img.load(image)
+        subImageHeight = img.height() / imageCount_y
+        subImageWidth = img.width() / imageCount_x
+        
+        for i in range(imageCount_y):
+            for p in range(imageCount_x):
+                subImage = img.copy(p * subImageHeight, i * subImageWidth, subImageWidth, subImageHeight)
+                self.pixmaps.append(QtGui.QPixmap.fromImage(subImage))
+
+        self.timer.timeout.connect(self.changeImage)
+        self.timer.start(25)
+        self.changeImage()
+    
+    def changeImage(self):
+        if self.currentPixmap >= len(self.pixmaps):
+            self.currentPixmap  = 1
+        
+        self.setPixmap(self.pixmaps[self.currentPixmap])
+        self.currentPixmap += 1 
 
 
 class SeriesWidgetItem(QtGui.QListWidgetItem):
