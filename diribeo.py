@@ -32,6 +32,7 @@ class EpisodeTableModel(QtCore.QAbstractTableModel):
         QtCore.QAbstractTableModel.__init__(self, parent)
         self.series = series        
         self.episodes = self.series.episodes
+        self.filled = False
 
         self.row_lookup = lambda episode: ["", episode.title, episode.date, episode.plot]
         self.column_lookup = ["", "Title", "Date", "Plot Summary"]
@@ -714,14 +715,42 @@ class SeriesInformationWidget(QtGui.QWidget):
             pass
         event.accept() 
 
-            
-class EpisodeViewWidget(QtGui.QTableView):    
-    def __init__(self, parent = None):
+
+class EpisodeTableWidget(QtGui.QTableView):    
+    def __init__(self, overview, parent = None):
         QtGui.QTableView.__init__(self, parent)
+        
+        self.overview = overview
         self.verticalHeader().setDefaultSectionSize(125)
         self.horizontalHeader().setStretchLastSection(True)
         self.setShowGrid(False)
         self.setSelectionBehavior(QtGui.QTableView.SelectRows)
+
+    def setModel(self, model):
+        try:
+            if model.filled:
+                QtGui.QTableView.setModel(self, model)
+                self.overview.tableview.show()
+                self.overview.waiting_widget.hide()
+            else:
+                self.overview.tableview.hide()
+                self.overview.waiting_widget.show()
+
+        except AttributeError:
+            pass
+
+class EpisodeOverviewWidget(QtGui.QWidget):    
+    def __init__(self, parent = None):
+        QtGui.QTableView.__init__(self, parent)
+        
+        self.tableview = EpisodeTableWidget(self)        
+        self.waiting_widget = WaitingWidget()  
+        
+        vbox = QtGui.QVBoxLayout()
+        self.setLayout(vbox)
+        
+        vbox.addWidget(self.tableview)
+        vbox.addWidget(self.waiting_widget)
 
 class SeriesInformationDock(QtGui.QDockWidget):
     def __init__(self, parent = None):
@@ -857,7 +886,8 @@ class ModelFiller(QtCore.QThread):
             episode_counter += 1
             if episode_counter % 8 == 0:
                 self.progress.emit(episode_counter, episodenumber)        
-                
+        
+        self.model.filled = True
         save_series()            
         self.finished.emit()
         self.update_tree.emit(self.series)
@@ -901,14 +931,42 @@ class SeriesProgressbar(QtGui.QProgressBar):
         if not self.timer.isActive():
             self.timer.start(1000);
 
+class WaitingWidget(QtGui.QWidget):
+    def __init__(self, parent=None):
+        QtGui.QWidget.__init__(self, parent)
+        hbox = QtGui.QHBoxLayout()
+        vbox = QtGui.QVBoxLayout()
+        self.setAutoFillBackground(True)
+        #self.setStyleSheet("background-color: white")
+        
+        #palette = self.palette()
+        #palette.setColor(QtGui.QPalette.Window, Qt.white)
+        #self.setPalette(palette)
+        vbox.setSpacing(3)
+        vbox.addStretch(10)
+        vbox.addWidget(AnimatedLabel("images/process-working.png", 8, 4))
+        vbox.addWidget(QtGui.QLabel("Downloading ..."))
+        vbox.addStretch(20)
+        #self.setLayout(vbox)
+        
+        hbox.setSpacing(3)
+        hbox.addStretch(20)
+        hbox.addLayout(vbox)
+        hbox.addStretch(20)
+        
+        self.setLayout(hbox)
+    
+
+
 class MainWindow(QtGui.QMainWindow):
     def __init__(self, parent = None):
         QtGui.QMainWindow.__init__(self, parent)
 
         self.existing_series = None # stores the currently active series object
         
-        self.tableview = EpisodeViewWidget()
-        self.setCentralWidget(self.tableview)
+        self.episode_overview_widget = EpisodeOverviewWidget()   
+        self.setCentralWidget(self.episode_overview_widget)
+        self.tableview = self.episode_overview_widget.tableview
 
         # Initialize the status bar
         statusbar = QtGui.QStatusBar()
@@ -1137,11 +1195,14 @@ class MainWindow(QtGui.QMainWindow):
 
     def load_existing_series_into_table(self, series):
         try:
-            self.tableview.setModel(active_table_models[series]) 
+            model = active_table_models[series]
+            self.tableview.setModel(model) 
             self.tableview.selectionModel().selectionChanged.connect(self.load_episode_information_at_index)
-        except KeyError:                    
+        except KeyError:    
             active_table_models[series] = model = EpisodeTableModel(series)
-            self.tableview.setModel(model)            
+            model.filled = True
+            self.tableview.setModel(model)
+            
             
     def load_items_into_table(self, items):
         ''' Loads the selected episodes from the online serieslist into its designated model.
@@ -1159,7 +1220,7 @@ class MainWindow(QtGui.QMainWindow):
                 current_series = Series(item.title)
                 series_list.append(current_series)
                 active_table_models[current_series] = model = EpisodeTableModel(current_series)
-                #self.tableview.setModel(model)
+                self.tableview.setModel(model)
                 self.tableview.selectionModel().selectionChanged.connect(self.load_episode_information_at_index)
                 
                 self.existing_series = current_series                
@@ -1177,7 +1238,6 @@ class MainWindow(QtGui.QMainWindow):
                                   
             else:
                 self.load_existing_series_into_table(existing_series)
-
 
 
 class AssociationWizard(QtGui.QWizard):
@@ -1233,9 +1293,11 @@ class ToolBar(QtGui.QToolBar):
 
 
 class AnimatedLabel(QtGui.QLabel):    
-    # Adapted from http://www.qtcentre.org/threads/26911-PNG-based-animation
+    #http://www.qtcentre.org/threads/26911-PNG-based-animation
     def __init__(self, image, imageCount_x, imageCount_y, parent=None):
         QtGui.QLabel.__init__(self, parent)
+        
+        assert os.path.isfile(image), "Image is not a valid file"
     
         self.pixmaps = []
         self.currentPixmap = 1
@@ -1311,7 +1373,7 @@ class SeriesOrganizerEncoder(json.JSONEncoder):
         
         if isinstance(obj, Settings):
             return { "__settings__" : True, "settings" : obj.settings} 
-            
+
         if isinstance(obj, MovieClipManager):
             return { "__movieclips__" : True, "dictionary" : obj.dictionary}                
         
@@ -1651,7 +1713,7 @@ class IMDBWrapper(object):
     def release_dates_to_datetimedate(self, imdbdatelist):
         """ This function converts the release dates used by imdbpy into a datetime object.
         Right now it only converts the USA release date into its proper format and returns it """
-
+        
         for imdbdate in imdbdatelist:
             matching = re.match(r"(\w+)::(.*)", imdbdate)
             if matching.group(1) == "USA":
