@@ -187,52 +187,21 @@ class MovieClipAssociator(QtCore.QThread):
             self.finished.emit(self.episode)
 
 
-class MovieClipAssigner(QtCore.QThread):
-    ''' This class is responsible for assigning a movie clip to a unknown episode.
-        It calculates the hash value of a the given file and looks for matches in appropiate data structures.
-        If no matches are found the "no_association_found' signal is emitted.
-        If one or more matches are found the movie clip file is moved/copied to the designated folder.
+class MovieClipGuesser(QtCore.QThread):
+    ''' This class searches for a match in all given episodes. It returns
+        a list of possible episodes from which the user can choose one.
+        It heavily uses the damerau–levenshtein distance
     '''
-    
     finished = QtCore.pyqtSignal()
     waiting = QtCore.pyqtSignal()
-    no_association_found = QtCore.pyqtSignal()
-    already_exists = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject") # This signal is emitted when the movieclip is already in the dict and in the folder
-    association_found = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject")
-    possible_matches_found = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject", "PyQt_PyObject")  # This signal is emitted when possible episodes are found 
-    filesystem_error = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject")
+    possible_matches_found = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject", "PyQt_PyObject")  # This signal is emitted when possible episodes are found
     
-    def __init__(self, filepath):
+    def __init__(self, filepath, movieclip):
         QtCore.QThread.__init__(self)
         self.filepath = filepath
-        
+        self.movieclip = movieclip
+     
     def run(self):
-        if not os.path.isfile(self.filepath) or not settings.is_valid_file_extension(self.filepath):
-            self.filesystem_error.emit(None, self.filepath)
-        else:
-            self.waiting.emit()
-            
-            self.movieclip = MovieClip(self.filepath)
-                    
-            episode_dict = movieclips.get_episode_dict_with_matching_checksums(self.movieclip.checksum)      
-                    
-            if len(episode_dict.items()) == 0 or episode_dict.items()[0][0] is None:
-                self.no_association_found.emit()
-                self.exec_()            
-            else:
-                # Assign first movieclip to first episode and first movieclip found
-                self.assign(episode_dict.items()[0][0], episode_dict.items()[0][1])
-               
-            self.finished.emit()
-
-    
-    def search_for_match(self):
-        ''' This function searches for a match in all given episodes. It returns
-            a list of possible episodes from which the user can choose one.
-            It heavily uses the damerau–levenshtein distance
-        '''
-
-
         #TODO CLEAN UP
         self.waiting.emit()
         
@@ -248,8 +217,6 @@ class MovieClipAssigner(QtCore.QThread):
             title = episode.get_normalized_name()
             score = self.dameraulevenshtein(title, filename)
             answer_dict[episode] = score
-
-
         
         items = answer_dict.items()
         items.sort(key = itemgetter(1))
@@ -257,8 +224,8 @@ class MovieClipAssigner(QtCore.QThread):
         self.finished.emit()
         
         self.possible_matches_found.emit(self.filepath, items, self.movieclip)
+            
         
-    
     def dameraulevenshtein(self, seq1, seq2):
         """Calculate the Damerau-Levenshtein distance between sequences.
     
@@ -303,7 +270,45 @@ class MovieClipAssigner(QtCore.QThread):
                     and seq1[x-1] == seq2[y] and seq1[x] != seq2[y]):
                     thisrow[y] = min(thisrow[y], twoago[y - 2] + 1)
         return thisrow[len(seq2) - 1]
+
+
+
+class MovieClipAssigner(QtCore.QThread):
+    ''' This class is responsible for assigning a movie clip to a unknown episode.
+        It calculates the hash value of a the given file and looks for matches in appropiate data structures.
+        If no matches are found the "no_association_found' signal is emitted.
+        If one or more matches are found the movie clip file is moved/copied to the designated folder.
+    '''
     
+    finished = QtCore.pyqtSignal()
+    waiting = QtCore.pyqtSignal()
+    no_association_found = QtCore.pyqtSignal()
+    already_exists = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject") # This signal is emitted when the movieclip is already in the dict and in the folder
+    association_found = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject")
+    filesystem_error = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject")
+    
+    def __init__(self, filepath):
+        QtCore.QThread.__init__(self)
+        self.filepath = filepath
+        
+    def run(self):
+        if not os.path.isfile(self.filepath) or not settings.is_valid_file_extension(self.filepath):
+            self.filesystem_error.emit(None, self.filepath)
+        else:
+            self.waiting.emit()
+            
+            self.movieclip = MovieClip(self.filepath)
+                    
+            episode_dict = movieclips.get_episode_dict_with_matching_checksums(self.movieclip.checksum)      
+                    
+            if len(episode_dict.items()) == 0 or episode_dict.items()[0][0] is None:
+                self.no_association_found.emit()
+                self.exec_()            
+            else:
+                # Assign first movieclip to first episode and first movieclip found
+                self.assign(episode_dict.items()[0][0], episode_dict.items()[0][1])
+               
+            self.finished.emit()
     
     def assign(self, episode, movieclip):        
         
@@ -1019,7 +1024,7 @@ class MainWindow(QtGui.QMainWindow):
         
         try:
             if messagebox.clickedButton() == feeling_lucky_button:                
-                self.sender().search_for_match()
+                mainwindow.guess_episode_for_movieclip(self.sender().filepath, self.sender().movieclip)
             else:
                 self.sender().finished.emit()
         except AttributeError:
@@ -1073,6 +1078,17 @@ class MainWindow(QtGui.QMainWindow):
         association_wizard.exec_()
 
 
+    def guess_episode_for_movieclip(self, filepath, movieclip):
+        
+        job = MovieClipGuesser(filepath, movieclip)
+        
+        job.waiting.connect(self.progressbar.waiting, type = QtCore.Qt.QueuedConnection)
+        job.possible_matches_found.connect(self.start_association_wizard, Qt.QueuedConnection)
+        job.finished.connect(self.progressbar.stop, type = QtCore.Qt.QueuedConnection)
+        
+        jobs.append(job)
+        job.start()
+
     def find_episode_to_movieclip(self, filepath):
         job = MovieClipAssigner(filepath)
         
@@ -1080,8 +1096,7 @@ class MainWindow(QtGui.QMainWindow):
         job.waiting.connect(self.progressbar.waiting, type = QtCore.Qt.QueuedConnection)
         job.finished.connect(self.progressbar.stop, type = QtCore.Qt.QueuedConnection)
         job.already_exists.connect(self.already_exists_warning, Qt.QueuedConnection)
-        job.association_found.connect(self.association_found_info, Qt.QueuedConnection) 
-        job.possible_matches_found.connect(self.start_association_wizard, Qt.QueuedConnection)
+        job.association_found.connect(self.association_found_info, Qt.QueuedConnection)
         job.filesystem_error.connect(self.filesystem_error_warning, Qt.QueuedConnection) 
         
         jobs.append(job)            
@@ -1195,10 +1210,9 @@ class MainWindow(QtGui.QMainWindow):
 
     def load_existing_series_into_table(self, series):
         try:
-            model = active_table_models[series]
-            self.tableview.setModel(model) 
+            self.tableview.setModel(active_table_models[series]) 
             self.tableview.selectionModel().selectionChanged.connect(self.load_episode_information_at_index)
-        except KeyError:    
+        except KeyError:
             active_table_models[series] = model = EpisodeTableModel(series)
             model.filled = True
             self.tableview.setModel(model)
