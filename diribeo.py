@@ -27,80 +27,104 @@ log_filename = "logger_output.out"
 logging.basicConfig(filename=log_filename,  format='%(asctime)s %(levelname)s %(message)s', level=logging.DEBUG, filemode='w')
 
 
-class EpisodeTableModel(QtCore.QAbstractTableModel):
-    def __init__(self, series, parent=None):
-        QtCore.QAbstractTableModel.__init__(self, parent)
-        self.series = series        
-        self.episodes = self.series.episodes
-        self.filled = False
-
-        self.row_lookup = lambda episode: ["", episode.title, episode.date, episode.plot]
-        self.column_lookup = ["", "Title", "Date", "Plot Summary"]
-
-    def insert_episode(self, episode):
-        self.episodes.append(episode)
-        self.insertRows(0,0,None) 
-
-    def insertRows(self, row, count, modelindex):
-        self.beginInsertRows(QtCore.QModelIndex(), row, count)
-        self.endInsertRows()
-        return True    
+class WorkerThread(QtCore.QThread):
     
-    def set_generator(self, generator):
-        self.generator = generator
+    # Define various signals        
+    waiting = QtCore.pyqtSignal()
+    finished = QtCore.pyqtSignal("PyQt_PyObject")  # First argument is optional
+    progress = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject")
+    
+    # Additional thread information
+    description = "" # The description which is shown in the statusbar
+    
+    def __init__(self):
+        QtCore.QThread.__init__(self)
 
-    def rowCount(self, index):
-        return len(self.episodes)
 
-    def columnCount(self, index):
-        return len(self.column_lookup)
 
-    def data(self, index, role):
-        episode = self.episodes[index.row()]        
-        if role == QtCore.Qt.DisplayRole: 
-            return QtCore.QString(unicode(self.row_lookup(episode)[index.column()]))  
-        elif role == QtCore.Qt.DecorationRole:
-            if index.column() == 0:
-                return create_default_image(episode)
-        elif role == QtCore.Qt.BackgroundRole:
-            return self.get_gradient_bg(episode.descriptor[0])
-        elif role == QtCore.Qt.TextAlignmentRole:
-            return QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter
+class WorkerThreadManager(object):
+    def __init__(self):
+        self.worker_thread_dict = {}
+        self.statusbar = QtGui.QStatusBar()
+        self.progressbar = DiribeoProgressbar()
+        self.timer = QtCore.QTimer()
+        self.timer.timeout.connect(self.refresh_statusbar) 
+        self.timer.timeout.connect(self.refresh_progressbar) 
+        self.ready = "Ready"
+        self.statusbar.showMessage(self.ready)       
+        
 
-        return QtCore.QVariant()     
+    def process_finished(self, worker_thread):        
+        try:
+            del self.worker_thread_dict[worker_thread]
+        except KeyError:
+            # Thread has already been deleted
+            pass
+        if len(self.worker_thread_dict) == 0:
+            self.statusbar.showMessage(self.ready)
+            self.timer.stop()
+            self.progressbar.stop()
 
-    def get_gradient_bg(self, index):            
-        gradient = QtGui.QLinearGradient(0, 0, 0, 200)
-        backgroundcolor = get_color_shade(index, 5)
-        comp_backgroundcolor =  get_complementary_color(backgroundcolor)
-        gradient.setColorAt(0.0, comp_backgroundcolor.lighter(50))
-        gradient.setColorAt(1.0, comp_backgroundcolor.lighter(150))
-        return QtGui.QBrush(gradient)
+    def process_waiting(self, worker_thread):
+        self.progressbar.waiting()
 
-    def flags(self, index):
-        return Qt.ItemIsEnabled | Qt.ItemIsSelectable
+    def process_progress(self, worker_thread, current, maximum):
+        self.worker_thread_dict[worker_thread] = [current, maximum]
+        
+    def append(self, worker_thread):        
+        worker_thread.waiting.connect(functools.partial(self.process_waiting, worker_thread))
+        worker_thread.finished.connect(functools.partial(self.process_finished, worker_thread))
+        worker_thread.progress.connect(functools.partial(self.process_progress, worker_thread))
+                
+        self.worker_thread_dict[worker_thread] = [0,0]
+        if not self.timer.isActive():
+            self.timer.timeout.emit()
+            self.timer.start(1000);       
+    
+    def refresh_progressbar(self):
+        current, maximum = map(sum, zip(*self.worker_thread_dict.values()))
+        self.progressbar.setValue(current)
+        self.progressbar.setMaximum(maximum)  
+    
+    def refresh_statusbar(self):
+        list_of_descriptions = [worker_thread[0].description for worker_thread in self.worker_thread_dict.items()]
+        if len(list_of_descriptions) > 0:
+            self.statusbar.showMessage(", ".join(list_of_descriptions))
+        else:
+             self.statusbar.showMessage(self.ready) 
+               
+               
+class DiribeoProgressbar(QtGui.QProgressBar):
+    def __init__(self, parent=None):
+        QtGui.QProgressBar.__init__(self, parent)
+        self.workers = {}        
 
-    def headerData(self, section, orientation, role):
-        if role == QtCore.Qt.DisplayRole:
-            if orientation == Qt.Horizontal:
-                #the column
-                return QtCore.QString(self.column_lookup[section])
+    def waiting(self):        
+        self.setValue(-1)
+        self.setMinimum(0)
+        self.setMaximum(0)  
 
-class MovieClipAssociator(QtCore.QThread):
+    def stop(self):     
+        self.setValue(-1)
+        self.setMinimum(0)
+        self.setMaximum(1)
+        QtGui.QProgressBar.reset(self)
+        
+
+class MovieClipAssociator(WorkerThread):
     ''' This class is responsible for associating a movie clip with a given episode.
         It emits various signals which can be used for feedback.
     '''
     
-    finished = QtCore.pyqtSignal("PyQt_PyObject")
-    waiting = QtCore.pyqtSignal()
     already_exists = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject") # This signal is emitted when the movieclip is already in the dict and in the folder
     filesystem_error = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject")
     already_exists_in_another = QtCore.pyqtSignal() # Emitted when movieclip is in _another_ episode
     
     def __init__(self, filepath, episode, movieclip = None):
-        QtCore.QThread.__init__(self)
+        WorkerThread.__init__(self)
         self.episode = episode
-        self.filepath = unicode(filepath) 
+        self.filepath = unicode(filepath)
+        self.description = "Assigning movieclip to a given episode" 
         
         if movieclip is not None:
             self.clip = movieclip
@@ -187,25 +211,24 @@ class MovieClipAssociator(QtCore.QThread):
             self.finished.emit(self.episode)
 
 
-class MovieClipGuesser(QtCore.QThread):
+class MovieClipGuesser(WorkerThread):
     ''' This class searches for a match in all given episodes. It returns
         a list of possible episodes from which the user can choose one.
         It heavily uses the damerau–levenshtein distance
     '''
-    finished = QtCore.pyqtSignal()
-    waiting = QtCore.pyqtSignal()
     possible_matches_found = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject", "PyQt_PyObject")  # This signal is emitted when possible episodes are found
     
-    def __init__(self, filepath, movieclip):
-        QtCore.QThread.__init__(self)
-        self.filepath = filepath
+    def __init__(self, movieclip):
+        WorkerThread.__init__(self)
+        self.filepath = movieclip.filepath
         self.movieclip = movieclip
+        self.description = "Guessing a movieclip"
      
     def run(self):
         #TODO CLEAN UP
         self.waiting.emit()
         
-        filename = os.path.basename(self.filepath)
+        filename, ext = os.path.splitext(os.path.basename(self.filepath))
         
         episode_list = []
         for series in series_list:
@@ -215,18 +238,22 @@ class MovieClipGuesser(QtCore.QThread):
         answer_dict = {}
         for index, episode in enumerate(episode_list):
             title = episode.get_normalized_name()
-            score = self.dameraulevenshtein(title, filename)
+            alternative_title = episode.get_alternative_name()
+            score = min(self.dameraulevenshtein(title, filename),self.dameraulevenshtein(alternative_title, filename))
             answer_dict[episode] = score
         
         items = answer_dict.items()
         items.sort(key = itemgetter(1))
 
-        self.finished.emit()
+        self.finished.emit(None)
         
         self.possible_matches_found.emit(self.filepath, items, self.movieclip)
             
         
-    def dameraulevenshtein(self, seq1, seq2):
+    def dameraulevenshtein(self, seq1, seq2, lower = False):
+        if lower:
+            seq1 = seq1.lower()
+            seq2 = seq2.lower()
         """Calculate the Damerau-Levenshtein distance between sequences.
     
         This distance is the number of additions, deletions, substitutions,
@@ -273,23 +300,23 @@ class MovieClipGuesser(QtCore.QThread):
 
 
 
-class MovieClipAssigner(QtCore.QThread):
+class MovieClipAssigner(WorkerThread):
     ''' This class is responsible for assigning a movie clip to a unknown episode.
         It calculates the hash value of a the given file and looks for matches in appropiate data structures.
         If no matches are found the "no_association_found' signal is emitted.
         If one or more matches are found the movie clip file is moved/copied to the designated folder.
     '''
     
-    finished = QtCore.pyqtSignal()
-    waiting = QtCore.pyqtSignal()
     no_association_found = QtCore.pyqtSignal()
     already_exists = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject") # This signal is emitted when the movieclip is already in the dict and in the folder
     association_found = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject")
     filesystem_error = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject")
     
+    
     def __init__(self, filepath):
-        QtCore.QThread.__init__(self)
+        WorkerThread.__init__(self)
         self.filepath = filepath
+        self.description = "Assigning movieclip to a unknown episode"
         
     def run(self):
         if not os.path.isfile(self.filepath) or not settings.is_valid_file_extension(self.filepath):
@@ -303,12 +330,13 @@ class MovieClipAssigner(QtCore.QThread):
                     
             if len(episode_dict.items()) == 0 or episode_dict.items()[0][0] is None:
                 self.no_association_found.emit()
+                self.finished.emit(None)
                 self.exec_()            
             else:
                 # Assign first movieclip to first episode and first movieclip found
                 self.assign(episode_dict.items()[0][0], episode_dict.items()[0][1])
                
-            self.finished.emit()
+            self.finished.emit(None)
     
     def assign(self, episode, movieclip):        
         
@@ -338,9 +366,115 @@ class MovieClipAssigner(QtCore.QThread):
             # Save movieclips to file 
             save_movieclips()
             
+
+class SeriesSearchWorker(WorkerThread):
+   
+    def __init__(self, serieslist, searchfield):
+        WorkerThread.__init__(self)
+        self.serieslist = serieslist
+        self.searchfield = searchfield
+
+    def run(self):
+        self.serieslist.clear()        
+        result = imdbwrapper.search_movie(self.searchfield.text())
+        for series_widget_item in result:             
+            self.serieslist.addItem(series_widget_item) 
+
+
+class ModelFiller(WorkerThread):
+    
+    # Initialize various signals.
+    insert_into_tree = QtCore.pyqtSignal("PyQt_PyObject")
+    update_tree = QtCore.pyqtSignal("PyQt_PyObject")
+    update_tableview = QtCore.pyqtSignal("PyQt_PyObject")
+    
+    def __init__(self, model, view, movie = None):
+        WorkerThread.__init__(self)
+        self.movie = movie
+        self.model = model
+        self.view = view
+        self.series = self.model.series
+        self.model.set_generator(imdbwrapper.get_episodes(movie))
+        self.description = "Filling a model"
+
+    def run(self): 
+                    
+        episode_counter = 0
+
+        # Make the progress bar idle
+        self.insert_into_tree.emit(self.series)  
+        self.waiting.emit()        
+        self.view.seriesinfo.load_information(self.series)
+        imdbwrapper.get_more_information(self.series, self.movie)
+        self.view.seriesinfo.load_information(self.series)
+            
+
+        for episode, episodenumber in self.model.generator:            
+            self.model.insert_episode(episode)            
+            episode_counter += 1
+            if episode_counter % 8 == 0:
+                self.progress.emit(episode_counter, episodenumber)        
+        
+        self.model.filled = True
+        save_series()            
+        self.finished.emit(None)
+        self.update_tree.emit(self.series)
+        self.update_tableview.emit(self.model)
              
 
+class EpisodeTableModel(QtCore.QAbstractTableModel):
+    def __init__(self, series, parent=None):
+        QtCore.QAbstractTableModel.__init__(self, parent)
+        self.series = series        
+        self.episodes = self.series.episodes
+        self.filled = False
 
+        self.row_lookup = lambda episode: ["", episode.title, episode.date, episode.plot]
+        self.column_lookup = ["", "Title", "Date", "Plot Summary"]
+
+    def insert_episode(self, episode):
+        self.episodes.append(episode)
+
+    def set_generator(self, generator):
+        self.generator = generator
+
+    def rowCount(self, index):
+        return len(self.episodes)
+
+    def columnCount(self, index):
+        return len(self.column_lookup)
+
+    def data(self, index, role):
+        episode = self.episodes[index.row()]        
+        if role == QtCore.Qt.DisplayRole: 
+            return QtCore.QString(unicode(self.row_lookup(episode)[index.column()]))  
+        elif role == QtCore.Qt.DecorationRole:
+            if index.column() == 0:
+                return create_default_image(episode)
+        elif role == QtCore.Qt.BackgroundRole:
+            return self.get_gradient_bg(episode.descriptor[0])
+        elif role == QtCore.Qt.TextAlignmentRole:
+            return QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter
+
+        return QtCore.QVariant()     
+
+    def get_gradient_bg(self, index):            
+        gradient = QtGui.QLinearGradient(0, 0, 0, 200)
+        backgroundcolor = get_color_shade(index, 5)
+        comp_backgroundcolor =  get_complementary_color(backgroundcolor)
+        gradient.setColorAt(0.0, comp_backgroundcolor.lighter(50))
+        gradient.setColorAt(1.0, comp_backgroundcolor.lighter(150))
+        return QtGui.QBrush(gradient)
+
+    def flags(self, index):
+        return Qt.ItemIsEnabled | Qt.ItemIsSelectable
+
+    def headerData(self, section, orientation, role):
+        if role == QtCore.Qt.DisplayRole:
+            if orientation == Qt.Horizontal:
+                #the column
+                return QtCore.QString(self.column_lookup[section])
+            
 class LocalSearch(QtGui.QFrame):
 
     def __init__(self, parent=None):
@@ -720,7 +854,6 @@ class SeriesInformationWidget(QtGui.QWidget):
             pass
         event.accept() 
 
-
 class EpisodeTableWidget(QtGui.QTableView):    
     def __init__(self, overview, parent = None):
         QtGui.QTableView.__init__(self, parent)
@@ -805,18 +938,7 @@ class SeriesAdderWizard(QtGui.QWizard):
     def wizard_complete(self):
         self.selection_finished.emit(self.online_search.onlineserieslist.selectedItems())
 
-class SeriesSearchWorker(QtCore.QThread):
-   
-    def __init__(self, serieslist, searchfield, parent = None):
-        QtCore.QThread.__init__(self, parent)
-        self.serieslist = serieslist
-        self.searchfield = searchfield
-
-    def run(self):
-        self.serieslist.clear()        
-        result = imdbwrapper.search_movie(self.searchfield.text())
-        for series_widget_item in result:             
-            self.serieslist.addItem(series_widget_item)        
+       
         
 class OnlineSearch(QtGui.QWizardPage):
     def __init__(self, parent = None):
@@ -855,86 +977,8 @@ class OnlineSearch(QtGui.QWizardPage):
         if len(self.onlinesearchfield.text()) > 0:            
             self.seriessearcher.run()
             
-        
-class ModelFiller(QtCore.QThread):
-    
-    # Initialize various signals.
-    waiting = QtCore.pyqtSignal()
-    insert_into_tree = QtCore.pyqtSignal("PyQt_PyObject")
-    progress = QtCore.pyqtSignal(int, int)
-    finished = QtCore.pyqtSignal()
-    update_tree = QtCore.pyqtSignal("PyQt_PyObject")
-    update_tableview = QtCore.pyqtSignal("PyQt_PyObject")
-    
-    def __init__(self, model, view, movie = None):
-        QtCore.QThread.__init__(self)
-        self.movie = movie
-        self.model = model
-        self.view = view
-        self.series = self.model.series
-        self.model.set_generator(imdbwrapper.get_episodes(movie))
 
-    def run(self): 
-                    
-        episode_counter = 0
 
-        # Make the progress bar idle
-        self.insert_into_tree.emit(self.series)  
-        self.waiting.emit()        
-        self.view.seriesinfo.load_information(self.series)
-        imdbwrapper.get_more_information(self.series, self.movie)
-        self.view.seriesinfo.load_information(self.series)
-            
-
-        for episode, episodenumber in self.model.generator:            
-            self.model.insert_episode(episode)            
-            episode_counter += 1
-            if episode_counter % 8 == 0:
-                self.progress.emit(episode_counter, episodenumber)        
-        
-        self.model.filled = True
-        save_series()            
-        self.finished.emit()
-        self.update_tree.emit(self.series)
-        self.update_tableview.emit(self.model)
-
-class SeriesProgressbar(QtGui.QProgressBar):
-    def __init__(self, parent=None, tablemodel = None):
-        QtGui.QProgressBar.__init__(self, parent)
-        self.workers = {}
-        self.timer = QtCore.QTimer()
-        self.timer.timeout.connect(self.refresh_progressbar)
-
-    def waiting(self):        
-        self.setValue(-1)
-        self.setMinimum(0)
-        self.setMaximum(0)  
-
-    def stop(self):     
-        self.setValue(-1)
-        self.setMinimum(0)
-        self.setMaximum(1)
-        QtGui.QProgressBar.reset(self)
-
-    def refresh_progressbar(self):
-        current, maximum = map(sum, zip(*self.workers.values()))
-        self.setValue(current)
-        self.setMaximum(maximum)        
-
-    def operation_finished(self):
-        try:
-            del self.workers[self.sender()]
-        except KeyError:
-            # Thread has already been deleted
-            pass
-        if len(self.workers) == 0:
-            self.stop()
-            self.timer.stop()
-
-    def update_bar(self, current, maximum):
-        self.workers[self.sender()] = [current, maximum]
-        if not self.timer.isActive():
-            self.timer.start(1000);
 
 class WaitingWidget(QtGui.QWidget):
     def __init__(self, parent=None):
@@ -973,17 +1017,18 @@ class MainWindow(QtGui.QMainWindow):
         self.setCentralWidget(self.episode_overview_widget)
         self.tableview = self.episode_overview_widget.tableview
 
-        # Initialize the status bar
-        statusbar = QtGui.QStatusBar()
-        statusbar.showMessage("Ready")
-        self.setStatusBar(statusbar)
+        # Initialize worker thread manager
+        self.jobs = WorkerThreadManager()
+
+        # Initialize the status bar        
+        self.setStatusBar(self.jobs.statusbar)
         
         # Initialize the progress bar and assign to the statusbar
-        self.progressbar = SeriesProgressbar()  
+        self.progressbar = self.jobs.progressbar  
         self.progressbar.setMaximumHeight(10)
         self.progressbar.setMaximumWidth(100)
         
-        statusbar.addPermanentWidget(self.progressbar)        
+        self.jobs.statusbar.addPermanentWidget(self.progressbar)        
 
         # Initialize the tool bar
         self.toolbar = ToolBar()
@@ -1024,9 +1069,9 @@ class MainWindow(QtGui.QMainWindow):
         
         try:
             if messagebox.clickedButton() == feeling_lucky_button:                
-                mainwindow.guess_episode_for_movieclip(self.sender().filepath, self.sender().movieclip)
+                mainwindow.guess_episode_with_movieclip(self.sender().movieclip)
             else:
-                self.sender().finished.emit()
+                self.sender().finished.emit(None)
         except AttributeError:
             pass
             
@@ -1078,41 +1123,29 @@ class MainWindow(QtGui.QMainWindow):
         association_wizard.exec_()
 
 
-    def guess_episode_for_movieclip(self, filepath, movieclip):
-        
-        job = MovieClipGuesser(filepath, movieclip)
-        
-        job.waiting.connect(self.progressbar.waiting, type = QtCore.Qt.QueuedConnection)
+    def guess_episode_with_movieclip(self, movieclip):
+        job = MovieClipGuesser(movieclip)
         job.possible_matches_found.connect(self.start_association_wizard, Qt.QueuedConnection)
-        job.finished.connect(self.progressbar.stop, type = QtCore.Qt.QueuedConnection)
-        
-        jobs.append(job)
+        self.jobs.append(job)
         job.start()
 
     def find_episode_to_movieclip(self, filepath):
-        job = MovieClipAssigner(filepath)
-        
-        job.no_association_found.connect(self.no_association_found)
-        job.waiting.connect(self.progressbar.waiting, type = QtCore.Qt.QueuedConnection)
-        job.finished.connect(self.progressbar.stop, type = QtCore.Qt.QueuedConnection)
+        job = MovieClipAssigner(filepath)        
+        job.no_association_found.connect(self.no_association_found)        
         job.already_exists.connect(self.already_exists_warning, Qt.QueuedConnection)
         job.association_found.connect(self.association_found_info, Qt.QueuedConnection)
-        job.filesystem_error.connect(self.filesystem_error_warning, Qt.QueuedConnection) 
-        
-        jobs.append(job)            
+        job.filesystem_error.connect(self.filesystem_error_warning, Qt.QueuedConnection)
+        self.jobs.append(job)            
         job.start()
 
     def add_movieclip_to_episode(self, filepath, episode, movieclip = None):        
         job = MovieClipAssociator(filepath, episode, movieclip = movieclip) 
-        
-        job.waiting.connect(self.progressbar.waiting, type = QtCore.Qt.QueuedConnection)
-        job.finished.connect(self.progressbar.stop, type = QtCore.Qt.QueuedConnection)
         job.finished.connect(self.seriesinfo.load_information, Qt.QueuedConnection)
         job.already_exists.connect(self.already_exists_warning, Qt.QueuedConnection) 
         job.already_exists_in_another.connect(self.display_duplicate_warning, Qt.QueuedConnection)             
         job.filesystem_error.connect(self.filesystem_error_warning, Qt.QueuedConnection)
         
-        jobs.append(job)
+        self.jobs.append(job)
         job.start()
     
     def delete_series(self):                
@@ -1239,15 +1272,10 @@ class MainWindow(QtGui.QMainWindow):
                 
                 self.existing_series = current_series                
                 job = ModelFiller(model, self, movie = movie)
-                
-                job.finished.connect(self.progressbar.operation_finished, type = QtCore.Qt.QueuedConnection)
-                job.waiting.connect(self.progressbar.waiting, type = QtCore.Qt.QueuedConnection)
-                job.progress.connect(self.progressbar.update_bar, type = QtCore.Qt.QueuedConnection)
                 job.update_tree.connect(self.local_search.update_tree, type = QtCore.Qt.QueuedConnection)
                 job.update_tableview.connect(self.tableview.setModel)
                 job.insert_into_tree.connect(self.local_search.insert_top_level_item, type = QtCore.Qt.QueuedConnection)
-
-                jobs.append(job)
+                self.jobs.append(job)
                 job.start()
                                   
             else:
@@ -1836,6 +1864,9 @@ class Episode(object):
     def get_descriptor(self):
         return str(self.descriptor[0]) + "x" + str('%0.2d' % self.descriptor[1])
 
+    def get_alternative_descriptor(self):
+        return "S" + str('%0.2d' % self.descriptor[0]) + "E" + str('%0.2d' % self.descriptor[1])
+
     def get_movieclips(self):
         try:
             return movieclips[self.get_identifier()]
@@ -1844,6 +1875,9 @@ class Episode(object):
     
     def get_normalized_name(self):
         return self.series[0] + " " + self.get_descriptor() + " - " + self.title
+    
+    def get_alternative_name(self):
+        return self.series[0] + " " + self.get_alternative_descriptor()
     
     def get_identifier(self):
         # Use the first key as unique identifier. Note that this is propably not a good idea!
@@ -1971,8 +2005,7 @@ if __name__ == "__main__":
     app = QtGui.QApplication(sys.argv)
     
     imdbwrapper = IMDBWrapper()
-    active_table_models = {}    
-    jobs = []
+    active_table_models = {}
     series_list = load_series()
     movieclips = load_movieclips()
     settings = load_settings()
