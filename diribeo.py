@@ -41,6 +41,17 @@ class WorkerThread(QtCore.QThread):
         QtCore.QThread.__init__(self)
 
 
+class AssignerThread(WorkerThread):
+    no_association_found = QtCore.pyqtSignal()
+    already_exists = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject") # This signal is emitted when the movieclip is already in the dict and in the folder
+    association_found = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject")
+    filesystem_error = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject")
+    already_exists_in_another = QtCore.pyqtSignal() # Emitted when movieclip is in _another_ episode
+    
+    def __init__(self):
+        WorkerThread.__init__(self)
+
+
 
 class WorkerThreadManager(object):
     def __init__(self):
@@ -54,7 +65,8 @@ class WorkerThreadManager(object):
         self.statusbar.showMessage(self.ready)       
         
 
-    def process_finished(self, worker_thread):        
+    def process_finished(self, worker_thread): 
+        print "Abgemeldet", worker_thread       
         try:
             del self.worker_thread_dict[worker_thread]
         except KeyError:
@@ -72,6 +84,7 @@ class WorkerThreadManager(object):
         self.worker_thread_dict[worker_thread] = [current, maximum]
         
     def append(self, worker_thread):        
+        print "Angemeldet", worker_thread
         worker_thread.waiting.connect(functools.partial(self.process_waiting, worker_thread))
         worker_thread.finished.connect(functools.partial(self.process_finished, worker_thread))
         worker_thread.progress.connect(functools.partial(self.process_progress, worker_thread))
@@ -111,17 +124,13 @@ class DiribeoProgressbar(QtGui.QProgressBar):
         QtGui.QProgressBar.reset(self)
         
 
-class MovieClipAssociator(WorkerThread):
+class MovieClipAssociator(AssignerThread):
     ''' This class is responsible for associating a movie clip with a given episode.
         It emits various signals which can be used for feedback.
     '''
     
-    already_exists = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject") # This signal is emitted when the movieclip is already in the dict and in the folder
-    filesystem_error = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject")
-    already_exists_in_another = QtCore.pyqtSignal() # Emitted when movieclip is in _another_ episode
-    
     def __init__(self, filepath, episode, movieclip = None):
-        WorkerThread.__init__(self)
+        AssignerThread.__init__(self)
         self.episode = episode
         self.filepath = unicode(filepath)
         self.description = "Assigning movieclip to a given episode" 
@@ -141,26 +150,36 @@ class MovieClipAssociator(WorkerThread):
             self.filesystem_error.emit(self.episode, self.filepath)
         else:
             self.waiting.emit()
-            
             if self.clip is None:
-                self.clip = MovieClip(self.filepath, identifier = self.episode.identifier)
-            
-            # Check and see if the movieclip is already associated with _another_ movie and display warning
-            unique = movieclips.check_unique(self.clip, self.identifier)
-            
-            if not unique:
-                self.already_exists_in_another.emit()
+                mainwindow.calculate_checksum_of_file(self.filepath, self)
                 self.exec_()
             else:
-                self.assign()
+                self.go(self.clip.checksum)
             
+            
+    def go(self, checksum):        
+        
+        if self.clip is None:
+            self.clip = MovieClip(self.filepath, identifier = self.episode.identifier, checksum = checksum)        
+        # Check and see if the movieclip is already associated with _another_ movie and display warning
+        unique = movieclips.check_unique(self.clip, self.identifier)
+        
+        if not unique:
+            print "NOT UNIQUE"
+            self.already_exists_in_another.emit()            
+        else:
+            self.assign()
+    
     def assign(self):
+            print "ASSSIGN"
             """ Here is a list of possibilities that might occur:
                     a) The clip is already in the movieclip dict and in its designated folder
                     b) The clip is already in the movieclip dict, but not in its designated folder
                     c) The clip is not in the movieclip dict but already in the folder
                     d) The clip is not in the movieclip dict and not in the folder
             """
+            
+            self.waiting.emit()
             
             filename = os.path.basename(self.filepath)
             
@@ -236,11 +255,17 @@ class MovieClipGuesser(WorkerThread):
                 episode_list.append(episode)
 
         answer_dict = {}
+        
+        episode_list_length = len(episode_list)
+        counter = 0
+        
         for index, episode in enumerate(episode_list):
             title = episode.get_normalized_name()
             alternative_title = episode.get_alternative_name()
             score = min(self.dameraulevenshtein(title, filename),self.dameraulevenshtein(alternative_title, filename))
             answer_dict[episode] = score
+            self.progress.emit(counter, episode_list_length)
+            counter += 1
         
         items = answer_dict.items()
         items.sort(key = itemgetter(1))
@@ -299,22 +324,48 @@ class MovieClipGuesser(WorkerThread):
         return thisrow[len(seq2) - 1]
 
 
+class CalculateChecksum(WorkerThread):
+    def __init__(self, filepath, caller_thread):
+        WorkerThread.__init__(self)
+        self.filepath = filepath
+        self.caller_thread = caller_thread
+        self.description = "Calculting CheckSUM :)"
+    
+    def run(self):
+        self.moveToThread(self.caller_thread)
+        
+        self.waiting.emit()
+        
+        checksum = hashlib.sha224()
+            
+        # Opening the file in binary mode is very important otherwise something completly different is calculated
+        with open(self.filepath, "rb") as f:
+            lines =  f.readlines()  
+            line_length = len(lines)  
+            counter = 0      
+            for line in lines:
+                checksum.update(line)
+                if counter % 512 == 0:
+                    self.progress.emit(counter, line_length)
+                counter += 1
+        f.close()
+    
+        self.checksum = checksum.hexdigest()
+        self.finished.emit(self.checksum)
+        self.caller_thread.go(self.checksum)
+        
+        
+        
 
-class MovieClipAssigner(WorkerThread):
+class MovieClipAssigner(AssignerThread):
     ''' This class is responsible for assigning a movie clip to a unknown episode.
         It calculates the hash value of a the given file and looks for matches in appropiate data structures.
         If no matches are found the "no_association_found' signal is emitted.
         If one or more matches are found the movie clip file is moved/copied to the designated folder.
     '''
     
-    no_association_found = QtCore.pyqtSignal()
-    already_exists = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject") # This signal is emitted when the movieclip is already in the dict and in the folder
-    association_found = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject")
-    filesystem_error = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject")
-    
-    
     def __init__(self, filepath):
-        WorkerThread.__init__(self)
+        AssignerThread.__init__(self)
         self.filepath = filepath
         self.description = "Assigning movieclip to a unknown episode"
         
@@ -322,21 +373,23 @@ class MovieClipAssigner(WorkerThread):
         if not os.path.isfile(self.filepath) or not settings.is_valid_file_extension(self.filepath):
             self.filesystem_error.emit(None, self.filepath)
         else:
-            self.waiting.emit()
-            
-            self.movieclip = MovieClip(self.filepath)
-                    
-            episode_dict = movieclips.get_episode_dict_with_matching_checksums(self.movieclip.checksum)      
-                    
-            if len(episode_dict.items()) == 0 or episode_dict.items()[0][0] is None:
-                self.no_association_found.emit()
-                self.finished.emit(None)
-                self.exec_()            
-            else:
-                # Assign first movieclip to first episode and first movieclip found
-                self.assign(episode_dict.items()[0][0], episode_dict.items()[0][1])
-               
-            self.finished.emit(None)
+            self.waiting.emit()            
+            mainwindow.calculate_checksum_of_file(self.filepath, self)
+            self.exec_()
+    
+    def go(self, checksum):  
+        self.waiting.emit()                         
+        self.movieclip = MovieClip(self.filepath, checksum = checksum)
+                
+        episode_dict = movieclips.get_episode_dict_with_matching_checksums(self.movieclip.checksum)      
+                
+        if len(episode_dict.items()) == 0 or episode_dict.items()[0][0] is None:
+            self.no_association_found.emit()
+            self.finished.emit(None)   
+        else:
+            # Assign first movieclip to first episode and first movieclip found
+            self.assign(episode_dict.items()[0][0], episode_dict.items()[0][1])
+    
     
     def assign(self, episode, movieclip):        
         
@@ -365,6 +418,8 @@ class MovieClipAssigner(WorkerThread):
             
             # Save movieclips to file 
             save_movieclips()
+            
+        self.finished.emit(None)
             
 
 class SeriesSearchWorker(WorkerThread):
@@ -1070,6 +1125,7 @@ class MainWindow(QtGui.QMainWindow):
         try:
             if messagebox.clickedButton() == feeling_lucky_button:                
                 mainwindow.guess_episode_with_movieclip(self.sender().movieclip)
+                self.sender().quit()
             else:
                 self.sender().finished.emit(None)
         except AttributeError:
@@ -1108,10 +1164,11 @@ class MainWindow(QtGui.QMainWindow):
         messagebox.setInformativeText("Are you sure you want to assign this movie clip to this movie")
         messagebox.setStandardButtons(QtGui.QMessageBox.Ok | QtGui.QMessageBox.Cancel) 
         result = messagebox.exec_()
+        
         if result == QtGui.QMessageBox.Ok:
             self.sender().assign()
         else:
-            self.sender().finished.emit(self.sender().movie)
+            self.sender().finished.emit(self.sender().episode)
             self.sender().quit()
 
     def start_association_wizard(self, filepath, episodes, movieclip):
@@ -1145,6 +1202,11 @@ class MainWindow(QtGui.QMainWindow):
         job.already_exists_in_another.connect(self.display_duplicate_warning, Qt.QueuedConnection)             
         job.filesystem_error.connect(self.filesystem_error_warning, Qt.QueuedConnection)
         
+        self.jobs.append(job)
+        job.start()
+
+    def calculate_checksum_of_file(self, filepath, caller_thread):
+        job = CalculateChecksum(filepath, caller_thread)
         self.jobs.append(job)
         job.start()
     
@@ -1440,7 +1502,7 @@ class Settings(object):
             self.settings = settings      
 
 
-        self.valid_extensions = ("mkv", "avi", "mpgeg", "mpg", "wmv")
+        self.valid_extensions = ("mkv", "avi", "mpgeg", "mpg", "wmv", "mp4")
 
     def get(self, attribute_name):
         try:
@@ -1577,12 +1639,8 @@ class MovieClip(object):
     def __init__(self, filepath, identifier = None, filesize = None, checksum = None):
         self.filepath = filepath
                     
-        self.identifier = identifier
-        
-        if checksum is None:
-            self.get_checksum()
-        else:
-            self.checksum = checksum
+        self.identifier = identifier 
+        self.checksum = checksum
             
         if filesize is None:
             self.get_filesize()
@@ -1597,23 +1655,6 @@ class MovieClip(object):
     def get_thumbnails(self):
         """ This function gathers the thumbnails and adds them to the dedicated thumnails list"""
         pass
-        
-    def get_checksum(self):
-        try:
-            return self.checksum
-        except AttributeError:
-            """This function calculates the SHA224 checksum of the given file and returns it"""
-    
-            checksum = hashlib.sha224()
-            
-            # Opening the file in binary mode is very important otherwise something completly different is calculated
-            with open(self.filepath, "rb") as f:            
-                for line in f:
-                    checksum.update(line)
-            f.close()
-    
-            self.checksum = checksum.hexdigest()
-            return self.checksum
 
     def merge(self, other):
         """ This function merges the current movie clip object with another one.
