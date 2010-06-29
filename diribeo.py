@@ -51,7 +51,22 @@ class AssignerThread(WorkerThread):
     def __init__(self):
         WorkerThread.__init__(self)
 
-
+    def calculate_checksum(self):
+        checksum = hashlib.sha224()            
+        # Opening the file in binary mode is very important otherwise something completly different is calculated
+        with open(self.filepath, "rb") as f:
+            lines =  f.readlines()  
+            line_length = len(lines)  
+            counter = 0      
+            for line in lines:
+                checksum.update(line)
+                if counter % 512 == 0:
+                    self.progress.emit(counter, line_length)
+                counter += 1
+        f.close()
+        
+        return checksum.hexdigest()
+    
 
 class WorkerThreadManager(object):
     def __init__(self):
@@ -122,112 +137,7 @@ class DiribeoProgressbar(QtGui.QProgressBar):
         self.setMinimum(0)
         self.setMaximum(1)
         QtGui.QProgressBar.reset(self)
-        
 
-class MovieClipAssociator(AssignerThread):
-    ''' This class is responsible for associating a movie clip with a given episode.
-        It emits various signals which can be used for feedback.
-    '''
-    
-    def __init__(self, filepath, episode, movieclip = None):
-        AssignerThread.__init__(self)
-        self.episode = episode
-        self.filepath = unicode(filepath)
-        self.description = "Assigning movieclip to a given episode" 
-        
-        if movieclip is not None:
-            self.clip = movieclip
-            # Update identifier
-            self.clip.identifier = self.episode.identifier
-        else:
-            self.clip = None
-                        
-
-    def run(self):
-        self.identifier = self.episode.get_identifier()
-        
-        if not os.path.isfile(self.filepath) or not settings.is_valid_file_extension(self.filepath):
-            self.filesystem_error.emit(self.episode, self.filepath)
-        else:
-            self.waiting.emit()
-            if self.clip is None:
-                mainwindow.calculate_checksum_of_file(self.filepath, self)
-                self.exec_()
-            else:
-                self.go(self.clip.checksum)
-            
-            
-    def go(self, checksum):        
-        
-        if self.clip is None:
-            self.clip = MovieClip(self.filepath, identifier = self.episode.identifier, checksum = checksum)        
-        # Check and see if the movieclip is already associated with _another_ movie and display warning
-        unique = movieclips.check_unique(self.clip, self.identifier)
-        
-        if not unique:
-            print "NOT UNIQUE"
-            self.already_exists_in_another.emit()            
-        else:
-            self.assign()
-    
-    def assign(self):
-            print "ASSSIGN"
-            """ Here is a list of possibilities that might occur:
-                    a) The clip is already in the movieclip dict and in its designated folder
-                    b) The clip is already in the movieclip dict, but not in its designated folder
-                    c) The clip is not in the movieclip dict but already in the folder
-                    d) The clip is not in the movieclip dict and not in the folder
-            """
-            
-            self.waiting.emit()
-            
-            filename = os.path.basename(self.filepath)
-            
-            # Calculate hypothetical filepath
-            destination = settings.calculate_filepath(self.episode, filename)
-            directory = os.path.dirname(destination)
-            
-            if self.clip in movieclips[self.identifier]:
-                
-                if os.path.isfile(destination):
-                    # a)
-                    self.already_exists.emit(self.episode, self.filepath)
-                    move_to_folder = False
-                    add_to_movieclips = False                    
-                else:
-                    # b)
-                    move_to_folder = True
-                    add_to_movieclips = False
-                    
-            else:
-                if os.path.isfile(destination):
-                    # c)
-                    move_to_folder = True
-                    add_to_movieclips = True
-                else:
-                    # d)
-                    move_to_folder = True
-                    add_to_movieclips = True      
-            
-            if move_to_folder:
-                # Check if there is already a file with the same name, normalizes file name if set to do so
-                filename = settings.get_unique_filename(destination, self.episode)
-                
-                # Move the file to the actual folder
-                settings.move_file_to_folder_structure(self.episode, self.filepath, new_filename = filename)
-                
-                # Update the filepath of the clip            
-                self.clip.filepath = os.path.join(directory, filename)
-
-            if add_to_movieclips:
-                # Add the clips to the movie clips manager
-                movieclips.add(self.clip)                
-                
-            if move_to_folder or add_to_movieclips:
-                # Save the movie clips to file
-                save_movieclips()    
-                            
-            self.finished.emit(self.episode)
 
 
 class MovieClipGuesser(WorkerThread):
@@ -322,40 +232,112 @@ class MovieClipGuesser(WorkerThread):
                     and seq1[x-1] == seq2[y] and seq1[x] != seq2[y]):
                     thisrow[y] = min(thisrow[y], twoago[y - 2] + 1)
         return thisrow[len(seq2) - 1]
-
-
-class CalculateChecksum(WorkerThread):
-    def __init__(self, filepath, caller_thread):
-        WorkerThread.__init__(self)
-        self.filepath = filepath
-        self.caller_thread = caller_thread
-        self.description = "Calculting CheckSUM :)"
     
-    def run(self):
-        self.moveToThread(self.caller_thread)
-        
-        self.waiting.emit()
-        
-        checksum = hashlib.sha224()
             
-        # Opening the file in binary mode is very important otherwise something completly different is calculated
-        with open(self.filepath, "rb") as f:
-            lines =  f.readlines()  
-            line_length = len(lines)  
-            counter = 0      
-            for line in lines:
-                checksum.update(line)
-                if counter % 512 == 0:
-                    self.progress.emit(counter, line_length)
-                counter += 1
-        f.close()
+
+class MovieClipAssociator(AssignerThread):
+    ''' This class is responsible for associating a movie clip with a given episode.
+        It emits various signals which can be used for feedback.
+    '''
     
-        self.checksum = checksum.hexdigest()
-        self.finished.emit(self.checksum)
-        self.caller_thread.go(self.checksum)
+    def __init__(self, filepath, episode, movieclip = None):
+        AssignerThread.__init__(self)
+        self.episode = episode
+        self.filepath = unicode(filepath)
+        self.description = "Assigning movieclip to a given episode" 
         
+        if movieclip is not None:
+            self.clip = movieclip
+            # Update identifier
+            self.clip.identifier = self.episode.identifier
+        else:
+            self.clip = None
+                        
+
+    def run(self):
+        self.identifier = self.episode.get_identifier()
         
+        if not os.path.isfile(self.filepath) or not settings.is_valid_file_extension(self.filepath):
+            self.filesystem_error.emit(self.episode, self.filepath)
+        else:
+            self.waiting.emit()
+            if self.clip is None:
+                self.checksum = self.calculate_checksum()
+            else:
+                self.checksum = self.clip.checksum  
         
+        if self.clip is None:
+            self.clip = MovieClip(self.filepath, identifier = self.episode.identifier, checksum = self.checksum)        
+        # Check and see if the movieclip is already associated with _another_ movie and display warning
+        unique = movieclips.check_unique(self.clip, self.identifier)
+        
+        if not unique:
+            print "NOT UNIQUE"
+            self.already_exists_in_another.emit()            
+        else:
+            self.assign()
+    
+    def assign(self):
+            print "ASSSIGN"
+            """ Here is a list of possibilities that might occur:
+                    a) The clip is already in the movieclip dict and in its designated folder
+                    b) The clip is already in the movieclip dict, but not in its designated folder
+                    c) The clip is not in the movieclip dict but already in the folder
+                    d) The clip is not in the movieclip dict and not in the folder
+            """
+            
+            self.waiting.emit()
+            
+            filename = os.path.basename(self.filepath)
+            
+            # Calculate hypothetical filepath
+            destination = settings.calculate_filepath(self.episode, filename)
+            directory = os.path.dirname(destination)
+            
+            if self.clip in movieclips[self.identifier]:
+                
+                if os.path.isfile(destination):
+                    # a)
+                    self.already_exists.emit(self.episode, self.filepath)
+                    move_to_folder = False
+                    add_to_movieclips = False                    
+                else:
+                    # b)
+                    move_to_folder = True
+                    add_to_movieclips = False
+                    
+            else:
+                if os.path.isfile(destination):
+                    # c)
+                    move_to_folder = True
+                    add_to_movieclips = True
+                else:
+                    # d)
+                    move_to_folder = True
+                    add_to_movieclips = True      
+            
+            if move_to_folder:
+                # Check if there is already a file with the same name, normalizes file name if set to do so
+                filename = settings.get_unique_filename(destination, self.episode)
+                
+                # Move the file to the actual folder
+                settings.move_file_to_folder_structure(self.episode, self.filepath, new_filename = filename)
+                
+                # Update the filepath of the clip            
+                self.clip.filepath = os.path.join(directory, filename)
+
+            if add_to_movieclips:
+                # Add the clips to the movie clips manager
+                movieclips.add(self.clip)                
+                
+            if move_to_folder or add_to_movieclips:
+                # Save the movie clips to file
+                save_movieclips()    
+                            
+            self.finished.emit(self.episode)
+
+
+     
 
 class MovieClipAssigner(AssignerThread):
     ''' This class is responsible for assigning a movie clip to a unknown episode.
@@ -372,25 +354,19 @@ class MovieClipAssigner(AssignerThread):
     def run(self):
         if not os.path.isfile(self.filepath) or not settings.is_valid_file_extension(self.filepath):
             self.filesystem_error.emit(None, self.filepath)
-        else:
-            self.waiting.emit()            
-            mainwindow.calculate_checksum_of_file(self.filepath, self)
-            self.exec_()
-    
-    def go(self, checksum):  
-        self.waiting.emit()                         
-        self.movieclip = MovieClip(self.filepath, checksum = checksum)
-                
-        episode_dict = movieclips.get_episode_dict_with_matching_checksums(self.movieclip.checksum)      
-                
-        if len(episode_dict.items()) == 0 or episode_dict.items()[0][0] is None:
-            self.no_association_found.emit()
-            self.finished.emit(None)   
-        else:
-            # Assign first movieclip to first episode and first movieclip found
-            self.assign(episode_dict.items()[0][0], episode_dict.items()[0][1])
-    
-    
+        else:           
+            self.waiting.emit()     
+            self.movieclip = MovieClip(self.filepath, checksum = self.calculate_checksum())
+                    
+            episode_dict = movieclips.get_episode_dict_with_matching_checksums(self.movieclip.checksum)      
+                    
+            if len(episode_dict.items()) == 0 or episode_dict.items()[0][0] is None:
+                self.no_association_found.emit()
+                self.finished.emit(None)   
+            else:
+                # Assign first movieclip to first episode and first movieclip found
+                self.assign(episode_dict.items()[0][0], episode_dict.items()[0][1])
+        
     def assign(self, episode, movieclip):        
         
         # Calculate destination of movieclip
@@ -708,12 +684,15 @@ class MovieClipInformationWidget(QtGui.QFrame):
             self.show()
 
     def open_folder(self):
-        try:
-            os.startfile(self.movieclip.get_folder())
-        except AttributeError:
-            # Not very portable            
-            subprocess.Popen(['nautilus', self.movieclip.get_folder()])
-    
+        folder = self.movieclip.get_folder()
+        # Not really pythonic
+        if folder is not None: 
+            try:
+                os.startfile()
+            except AttributeError:
+                # Not very portable            
+                subprocess.Popen(['nautilus', self.movieclip.get_folder()])
+        
     def load_information(self, movieclip):
         self.title.setText(movieclip.get_filename())
      
@@ -1126,8 +1105,6 @@ class MainWindow(QtGui.QMainWindow):
             if messagebox.clickedButton() == feeling_lucky_button:                
                 mainwindow.guess_episode_with_movieclip(self.sender().movieclip)
                 self.sender().quit()
-            else:
-                self.sender().finished.emit(None)
         except AttributeError:
             pass
             
@@ -1201,12 +1178,6 @@ class MainWindow(QtGui.QMainWindow):
         job.already_exists.connect(self.already_exists_warning, Qt.QueuedConnection) 
         job.already_exists_in_another.connect(self.display_duplicate_warning, Qt.QueuedConnection)             
         job.filesystem_error.connect(self.filesystem_error_warning, Qt.QueuedConnection)
-        
-        self.jobs.append(job)
-        job.start()
-
-    def calculate_checksum_of_file(self, filepath, caller_thread):
-        job = CalculateChecksum(filepath, caller_thread)
         self.jobs.append(job)
         job.start()
     
