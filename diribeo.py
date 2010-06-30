@@ -82,7 +82,7 @@ class AssignerThread(WorkerThread):
                                  100.0 * byte_count / filesize),
     
         with open(self.filepath, "rb") as iso_file:
-            checksum = self.hash_file(iso_file, hashlib.sha224(), self.progress.emit)# self.progress.emit
+            checksum = self.hash_file(iso_file, hashlib.sha224(), self.progress.emit)
             return checksum
         
     
@@ -946,11 +946,7 @@ class SeriesInformationWidget(QtGui.QWidget):
         self.setAcceptDrops(True)
 
     def save_seen_it(self):
-        if self.seenit.content.isChecked():
-            self.movie.seen_it = True
-        else:
-            self.movie.seen_it = False
-
+        self.movie.seen_it = self.seenit.content.isChecked()
 
     def main_widget_set_visibility(self, show):
         if show:
