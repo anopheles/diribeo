@@ -161,11 +161,16 @@ class MovieClipGuesser(WorkerThread):
     '''
     possible_matches_found = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject", "PyQt_PyObject")  # This signal is emitted when possible episodes are found
     
-    def __init__(self, movieclip):
+    def __init__(self, movieclip, series):
         WorkerThread.__init__(self)
         self.filepath = movieclip.filepath
         self.movieclip = movieclip
-        self.description = "Guessing a movieclip"
+        self.series = series # Can be none
+        hint = ""
+        if self.series is not None:
+            hint = " Hint: " + series.title
+            
+        self.description = "Guessing a movieclip" + hint
      
     def run(self):
         #TODO CLEAN UP
@@ -174,8 +179,12 @@ class MovieClipGuesser(WorkerThread):
         filename, ext = os.path.splitext(os.path.basename(self.filepath))
         
         episode_list = []
-        for series in series_list:
-            for episode in series.episodes:
+        if self.series is None:        
+            for series in series_list:
+                for episode in series.episodes:
+                    episode_list.append(episode)
+        else:
+            for episode in self.series:
                 episode_list.append(episode)
 
         answer_dict = {}
@@ -360,10 +369,17 @@ class MovieClipAssigner(AssignerThread):
         If one or more matches are found the movie clip file is moved/copied to the designated folder.
     '''
     
-    def __init__(self, filepath):
+    def __init__(self, filepath, series):
         AssignerThread.__init__(self)
         self.filepath = filepath
-        self.description = "Assigning movieclip to a unknown episode"
+        self.series = series # Can be none
+        
+        hint = ""
+        if self.series is not None:
+            hint = " Hint: " + series.title
+            
+        self.description = "Assigning movieclip to a unknown episode" + hint
+        
         
     def run(self):
         if not os.path.isfile(self.filepath) or not settings.is_valid_file_extension(self.filepath):
@@ -573,7 +589,39 @@ class EpisodeTableModel(QtCore.QAbstractTableModel):
             if orientation == Qt.Horizontal:
                 #the column
                 return QtCore.QString(self.column_lookup[section])
+
+class LocalTreeWidget(QtGui.QTreeWidget):
+    def __init__(self, parent=None):
+        QtGui.QTreeWidget.__init__(self, parent)     
+        
+        
+        self.setSelectionMode(QtGui.QAbstractItemView.SingleSelection)
+        self.viewport().setAcceptDrops(True)
+        self.setDropIndicatorShown(True)
+
+    def dragEnterEvent(self, event):
+           event.acceptProposedAction()
+
+    def dragMoveEvent(self, event):
+        event.acceptProposedAction()
+        
+    def dropEvent(self, event):
+        series = None
+        try:
+            dropIndex = self.indexAt(event.pos())
+            series = self.itemFromIndex(dropIndex).series
+        except AttributeError:
+            pass #No Series Affinity
             
+        try:
+            for filepath in event.mimeData().urls():
+                filepath = os.path.abspath(unicode(filepath.toLocalFile()))            
+                mainwindow.find_episode_to_movieclip(filepath, series)
+            event.accept()
+        except IndexError:
+            pass
+        
+        
 class LocalSearch(QtGui.QFrame):
 
     def __init__(self, parent=None):
@@ -587,7 +635,7 @@ class LocalSearch(QtGui.QFrame):
         self.localsearchbutton = QtGui.QPushButton("Search")
         self.localsearchfield = QtGui.QLineEdit()        
 
-        self.localseriestree = QtGui.QTreeWidget()
+        self.localseriestree = LocalTreeWidget()
         self.localseriestree.setColumnCount(1)
         self.localseriestree.setHeaderLabels(["Series"])        
         self.localseriestree.setAnimated(True)
@@ -603,22 +651,7 @@ class LocalSearch(QtGui.QFrame):
         localframelayout.addWidget(self.localseriestree)
         
         self.toplevel_items = []
-        
-        self.setAcceptDrops(True)
-        
-    def dragEnterEvent(self, event):
-        event.acceptProposedAction()
 
-    def dragMoveEvent(self, event):
-        event.acceptProposedAction()
-        
-    def dropEvent(self, event):
-        try:
-            filepath = os.path.abspath(unicode(event.mimeData().urls()[0].toLocalFile()))
-            mainwindow.find_episode_to_movieclip(filepath)
-            event.accept()
-        except IndexError:
-            pass
 
     def sort_tree(self):
         # This also sorts children which produces a unwanted sorting
@@ -1179,7 +1212,7 @@ class MainWindow(QtGui.QMainWindow):
         
         try:
             if messagebox.clickedButton() == feeling_lucky_button:                
-                mainwindow.guess_episode_with_movieclip(self.sender().movieclip)
+                mainwindow.guess_episode_with_movieclip(self.sender().movieclip, self.sender().series)
                 self.sender().quit()
         except AttributeError:
             pass
@@ -1265,14 +1298,14 @@ class MainWindow(QtGui.QMainWindow):
         self.jobs.append(job)
         job.start()
 
-    def guess_episode_with_movieclip(self, movieclip):
-        job = MovieClipGuesser(movieclip)
+    def guess_episode_with_movieclip(self, movieclip, series):
+        job = MovieClipGuesser(movieclip, series)
         job.possible_matches_found.connect(self.start_association_wizard, Qt.QueuedConnection)
         self.jobs.append(job)
         job.start()
 
-    def find_episode_to_movieclip(self, filepath):
-        job = MovieClipAssigner(filepath)        
+    def find_episode_to_movieclip(self, filepath, series):
+        job = MovieClipAssigner(filepath, series)        
         job.no_association_found.connect(self.no_association_found)        
         job.already_exists.connect(self.already_exists_warning, Qt.QueuedConnection)
         job.association_found.connect(self.association_found_info, Qt.QueuedConnection)
@@ -1593,8 +1626,12 @@ class Settings(object):
         except KeyError:
             pass
 
-    def get_thumbnail_folder(self):
-        return os.path.join(self.settings["deployment_folder"], self.settings["thumbnail_folder"])
+    def get_thumbnail_folder(self):        
+        thumbnail_folder = os.path.join(self.settings["deployment_folder"], self.settings["thumbnail_folder"])
+        if not os.path.exists(thumbnail_folder):
+            os.makedirs(thumbnail_folder)
+        
+        return thumbnail_folder
 
 
     def get_normalized_filename(self, filename, episode):
@@ -1628,13 +1665,7 @@ class Settings(object):
     def get_user_dir(self):
         ''' Returns the user/Home directory of the user running this application. '''        
         return os.path.expanduser("~")
-        
-    
-    def create_deployment_folder(self):
-        ''' Creates the deployment folder if it doesn't exist '''
-        if not os.path.exists(self.get("deployment_folder")):
-            os.makedirs(self.get("deployment_folder"))
-            
+ 
 
     def is_valid_file_extension(self, filepath):
         ''' Checks if the given filepath's filename has a proper movie clip extension ''' 
