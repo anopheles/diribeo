@@ -17,6 +17,7 @@ import functools
 import shlex
 import glob
 import uuid
+import random
 
 
 from PyQt4 import QtGui
@@ -65,7 +66,9 @@ class AssignerThread(WorkerThread):
         for block in iter(functools.partial(file_obj.read, blocksize), ''):
             hasher.update(block)
             byte_count += len(block)
-            callback(byte_count, self.filesize)
+            # The next line is very important! If you use progress.emit as callback it prevents a deadlock under some conditions
+            if byte_count % blocksize ** 2 == 0:                  
+                callback(byte_count, self.filesize)
         return hasher.hexdigest()  
     
     
@@ -79,7 +82,7 @@ class AssignerThread(WorkerThread):
                                  100.0 * byte_count / filesize),
     
         with open(self.filepath, "rb") as iso_file:
-            checksum = self.hash_file(iso_file, hashlib.sha224(), self.progress.emit)
+            checksum = self.hash_file(iso_file, hashlib.sha224(), self.progress.emit)# self.progress.emit
             return checksum
         
     
@@ -96,7 +99,7 @@ class WorkerThreadManager(object):
         self.statusbar.showMessage(self.ready)       
         
 
-    def process_finished(self, worker_thread):   
+    def process_finished(self, worker_thread):
         try:
             del self.worker_thread_dict[worker_thread]
         except KeyError:
@@ -113,7 +116,7 @@ class WorkerThreadManager(object):
     def process_progress(self, worker_thread, current, maximum):
         self.worker_thread_dict[worker_thread] = [current, maximum]
         
-    def append(self, worker_thread):        
+    def append(self, worker_thread):     
         worker_thread.waiting.connect(functools.partial(self.process_waiting, worker_thread))
         worker_thread.finished.connect(functools.partial(self.process_finished, worker_thread))
         worker_thread.progress.connect(functools.partial(self.process_progress, worker_thread))
@@ -121,7 +124,8 @@ class WorkerThreadManager(object):
         self.worker_thread_dict[worker_thread] = [0,0]
         if not self.timer.isActive():
             self.timer.timeout.emit()
-            self.timer.start(1000);       
+            self.timer.start(1000);  
+
     
     def refresh_progressbar(self):
         current, maximum = map(sum, zip(*self.worker_thread_dict.values()))
@@ -350,11 +354,7 @@ class MovieClipAssociator(AssignerThread):
 
             if add_to_movieclips:
                 # Add the clips to the movie clips manager
-                movieclips.add(self.clip)                
-                
-            if move_to_folder or add_to_movieclips:
-                # Save the movie clips to file
-                save_movieclips()    
+                movieclips.add(self.clip)                  
                             
             self.load_information.emit(self.episode)
             self.finished.emit()
@@ -371,7 +371,7 @@ class MovieClipAssigner(AssignerThread):
     
     def __init__(self, filepath, series):
         AssignerThread.__init__(self)
-        self.filepath = filepath
+        self.filepath = unicode(filepath)
         self.series = series # Can be none
         
         hint = ""
@@ -389,7 +389,7 @@ class MovieClipAssigner(AssignerThread):
             self.waiting.emit()     
             self.movieclip = MovieClip(self.filepath, checksum = self.calculate_checksum())
                     
-            episode_dict = movieclips.get_episode_dict_with_matching_checksums(self.movieclip.checksum)      
+            episode_dict = movieclips.get_episode_dict_with_matching_checksums(self.movieclip.checksum)
                     
             if len(episode_dict.items()) == 0 or episode_dict.items()[0][0] is None:
                 self.no_association_found.emit()
@@ -423,9 +423,6 @@ class MovieClipAssigner(AssignerThread):
             # Change filepath on movieclip object
             movieclip.filepath = os.path.join(directory, filename)
             
-            # Save movieclips to file 
-            save_movieclips()
-            
         self.finished.emit()
  
  
@@ -448,23 +445,20 @@ class ThumbnailGenerator(WorkerThread):
 
     def run(self):
         self.waiting.emit()
-        
         #ffmpeg -i foo.avi -r 1 -s WxH -f image2 foo-%03d.jpeg
         #http://www.ffmpeg.org/ffmpeg-doc.html
         #i = filename, r = framerate, s = size, f = force format, t=duration in s
         unique_identifier = str(uuid.uuid4())
         self.prefix = os.path.join(settings.get_thumbnail_folder(), unique_identifier)
         destination = os.path.join(settings.get_thumbnail_folder(), unique_identifier + "-%03d.jpeg") 
-        command = 'ffmpeg -i "'+ str(self.filepath) + '" -r 1/12  -t 50 -ss 90 -f image2 "' + destination + '"'              
-        args = shlex.split(command)
-        
+        command = 'ffmpeg -i "'+ os.path.normpath(self.filepath) + '" -r 1/12  -t 50 -ss 90 -f image2 "' + destination + '"'              
+        args = shlex.split(str(command)) # does not support unicode input
         proc = subprocess.Popen(args, shell = True, stdout=subprocess.PIPE)
         proc.wait()        
         self.collect_images()
         
         if len(self.image_list) > 0:
             self.movieclip.thumbnails = self.image_list
-            save_movieclips()
             self.thumbnails_created.emit(self.episode)
         else:
             self.error_in_thumbnail_creation.emit()
@@ -479,21 +473,27 @@ class ThumbnailGenerator(WorkerThread):
 
 class SeriesSearchWorker(WorkerThread):
     no_connection_available = QtCore.pyqtSignal() # Is emitted whenever there is no active internet connection available
+    nothing_found = QtCore.pyqtSignal()
+    results = QtCore.pyqtSignal("PyQt_PyObject")
    
-    def __init__(self, serieslist, searchfield):
+    def __init__(self, searchfield):
         WorkerThread.__init__(self)
-        self.serieslist = serieslist
         self.searchfield = searchfield
         self.no_connection_available.connect(mainwindow.no_internet_connection_warning)
 
     def run(self):
-        self.serieslist.clear()        
+        self.waiting.emit()
+        
         try:
-            result = imdbwrapper.search_movie(self.searchfield.text())            
-            for series_widget_item in result:             
-                self.serieslist.addItem(series_widget_item) 
+            result = imdbwrapper.search_movie(self.searchfield.text())
+            if len(result) == 0:
+                self.nothing_found.emit()
+            else:                
+                self.results.emit(result)
         except NoConnectionAvailable:
             self.no_connection_available.emit()
+        
+        self.finished.emit()
 
 
 class ModelFiller(WorkerThread):
@@ -530,8 +530,7 @@ class ModelFiller(WorkerThread):
             if episode_counter % 8 == 0:
                 self.progress.emit(episode_counter, episodenumber)        
         
-        self.model.filled = True
-        save_series()            
+        self.model.filled = True          
         self.finished.emit()
         self.update_tree.emit(self.series)
         self.update_tableview.emit(self.model)
@@ -565,17 +564,19 @@ class EpisodeTableModel(QtCore.QAbstractTableModel):
             return QtCore.QString(unicode(self.row_lookup(episode)[index.column()]))  
         elif role == QtCore.Qt.DecorationRole:
             if index.column() == 0:
-                return create_default_image(episode)
+                return create_default_image(episode, additional_text = str(len(episode.get_thumbnails())))
         elif role == QtCore.Qt.BackgroundRole:
-            return self.get_gradient_bg(episode.descriptor[0])
+            if not episode.seen_it:
+                return self.get_gradient_bg(episode.descriptor[0])
+            return self.get_gradient_bg(episode.descriptor[0], saturation = 0.5)
         elif role == QtCore.Qt.TextAlignmentRole:
             return QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter
 
         return QtCore.QVariant()     
 
-    def get_gradient_bg(self, index):            
+    def get_gradient_bg(self, index, saturation = 0.25):            
         gradient = QtGui.QLinearGradient(0, 0, 0, 200)
-        backgroundcolor = get_color_shade(index, 5)
+        backgroundcolor = get_color_shade(index, 5, saturation)
         comp_backgroundcolor =  get_complementary_color(backgroundcolor)
         gradient.setColorAt(0.0, comp_backgroundcolor.lighter(50))
         gradient.setColorAt(1.0, comp_backgroundcolor.lighter(150))
@@ -841,7 +842,7 @@ class MovieClipOverviewWidget(QtGui.QWidget):
                 
         movieclips =  movie.get_movieclips()
         
-        if movieclips != None and len(movieclips) > 0:
+        if len(movieclips) > 0:
             self.draghere_label.setVisible(False)
             if movieclips != None:
                 for movieclip in movieclips:
@@ -938,9 +939,18 @@ class SeriesInformationWidget(QtGui.QWidget):
         self.delete_button = self.title.content.delete_button
         self.update_button = self.title.content.update_button
         
+        self.seenit.content.clicked.connect(self.save_seen_it)
+        
         self.show_main_widget(False)
         
         self.setAcceptDrops(True)
+
+    def save_seen_it(self):
+        if self.seenit.content.isChecked():
+            self.movie.seen_it = True
+        else:
+            self.movie.seen_it = False
+
 
     def main_widget_set_visibility(self, show):
         if show:
@@ -977,6 +987,7 @@ class SeriesInformationWidget(QtGui.QWidget):
             self.plot.setText(movie.plot)
             self.plot.setVisible(True)
             self.delete_button.setVisible(False)
+            self.seenit.content.setChecked(self.movie.seen_it)
         
         # Handle the title
         try:
@@ -999,7 +1010,10 @@ class SeriesInformationWidget(QtGui.QWidget):
     def dropEvent(self, event):        
         try:
             filepath = event.mimeData().urls()[0].toLocalFile()
-            mainwindow.add_movieclip_to_episode(filepath, self.movie)
+            if isinstance(self.movie, Episode):
+                mainwindow.add_movieclip_to_episode(filepath, self.movie)
+            else:
+                mainwindow.find_episode_to_movieclip(filepath, self.movie)
             
         except AttributeError, IndexError:
             pass
@@ -1015,10 +1029,15 @@ class EpisodeTableWidget(QtGui.QTableView):
         self.setShowGrid(False)
         self.setSelectionBehavior(QtGui.QTableView.SelectRows)
 
+    def set_callback(self, callback):
+        self.callback = callback
+
     def setModel(self, model):
+        
         try:
             if model.filled:
                 QtGui.QTableView.setModel(self, model)
+                self.selectionModel().selectionChanged.connect(self.callback)
                 self.overview.tableview.show()
                 self.overview.waiting_widget.hide()
             else:
@@ -1026,7 +1045,8 @@ class EpisodeTableWidget(QtGui.QTableView):
                 self.overview.waiting_widget.show()
 
         except AttributeError:
-            pass
+            self.overview.tableview.hide()
+            self.overview.waiting_widget.show()
 
 class EpisodeOverviewWidget(QtGui.QWidget):    
     def __init__(self, parent = None):
@@ -1110,19 +1130,23 @@ class OnlineSearch(QtGui.QWizardPage):
         onlinelayout.addLayout(onlinesearchgrid)
         onlinelayout.addWidget(self.onlineserieslist)
         
-        self.seriessearcher = SeriesSearchWorker(self.onlineserieslist, self.onlinesearchfield)
+        self.seriessearcher = SeriesSearchWorker(self.onlinesearchfield)
+        self.seriessearcher.nothing_found.connect(mainwindow.nothing_found_warning)
+        self.seriessearcher.results.connect(self.add_items)
         self.onlinesearchbutton.clicked.connect(self.search, Qt.QueuedConnection)    
         
     def keyPressEvent(self, event):
        if event.key() in (QtCore.Qt.Key_Return, QtCore.Qt.Key_Enter):           
            self.search()             
                   
-    def search(self):
+    def search(self):      
         if len(self.onlinesearchfield.text()) > 0:            
-            self.seriessearcher.run()
+            self.seriessearcher.start()
             
-
-
+    def add_items(self, items):
+        self.onlineserieslist.clear()
+        for item in items:
+            self.onlineserieslist.addItem(item) 
 
 class WaitingWidget(QtGui.QWidget):
     def __init__(self, parent=None):
@@ -1160,6 +1184,7 @@ class MainWindow(QtGui.QMainWindow):
         self.episode_overview_widget = EpisodeOverviewWidget()   
         self.setCentralWidget(self.episode_overview_widget)
         self.tableview = self.episode_overview_widget.tableview
+        self.tableview.set_callback(self.load_episode_information_at_index)
 
         # Initialize worker thread manager
         self.jobs = WorkerThreadManager()
@@ -1194,12 +1219,16 @@ class MainWindow(QtGui.QMainWindow):
         self.local_search.localseriestree.itemClicked.connect(self.load_into_local_table)         
         self.seriesinfo.delete_button.clicked.connect(self.delete_series)
         
-        self.load_all_series_into_their_table()        
-        self.tableview.setModel(None)
+        self.load_all_series_into_their_table()
         
         self.setWindowTitle("Diribeo")
         self.resize_to_percentage(66)
         self.center()
+
+    def closeEvent(self, event):
+        save_movieclips()
+        save_series()
+        save_settings()
 
     def no_association_found(self):
         messagebox = QtGui.QMessageBox(QtGui.QMessageBox.Warning, "No Association found", "")
@@ -1216,6 +1245,17 @@ class MainWindow(QtGui.QMainWindow):
                 self.sender().quit()
         except AttributeError:
             pass
+
+
+    def nothing_found_warning(self):
+        #TODO        
+        messagebox = QtGui.QMessageBox(QtGui.QMessageBox.Warning, "NOTHING FOUND", "")
+        messagebox.setText("You're trying to assign a movie clip to the same movie multiple times.")
+        messagebox.setInformativeText("The movie clip is already associated with this episode")
+        messagebox.setStandardButtons(QtGui.QMessageBox.Ok)
+        messagebox.exec_()
+
+
                  
     def error_in_thumbnail_creation_warning(self, movieclip, episode):
         #TODO
@@ -1304,13 +1344,13 @@ class MainWindow(QtGui.QMainWindow):
         self.jobs.append(job)
         job.start()
 
-    def find_episode_to_movieclip(self, filepath, series):
-        job = MovieClipAssigner(filepath, series)        
-        job.no_association_found.connect(self.no_association_found)        
+    def find_episode_to_movieclip(self, filepath, series):        
+        job = MovieClipAssigner(filepath, series) 
+        job.no_association_found.connect(self.no_association_found)     
         job.already_exists.connect(self.already_exists_warning, Qt.QueuedConnection)
         job.association_found.connect(self.association_found_info, Qt.QueuedConnection)
         job.filesystem_error.connect(self.filesystem_error_warning, Qt.QueuedConnection)
-        self.jobs.append(job)            
+        self.jobs.append(job)       
         job.start()
 
     def add_movieclip_to_episode(self, filepath, episode, movieclip = None):        
@@ -1342,8 +1382,6 @@ class MainWindow(QtGui.QMainWindow):
             
             # Clear all information in the series information widget
             self.seriesinfo.clear_all_info()
-            
-            save_series()
         
     def center(self):
         screen = QtGui.QDesktopWidget().screenGeometry()
@@ -1407,7 +1445,7 @@ class MainWindow(QtGui.QMainWindow):
                 self.last_selection_model = last_selection_model               
                 self.tableview.selectRow(index.row())
   
-        except IndexError:  
+        except IndexError, TypeError:  
             pass  
 
 
@@ -1418,7 +1456,6 @@ class MainWindow(QtGui.QMainWindow):
     def load_existing_series_into_table(self, series):
         try:
             self.tableview.setModel(active_table_models[series]) 
-            self.tableview.selectionModel().selectionChanged.connect(self.load_episode_information_at_index)
         except KeyError:
             active_table_models[series] = model = EpisodeTableModel(series)
             model.filled = True
@@ -1442,10 +1479,6 @@ class MainWindow(QtGui.QMainWindow):
                 series_list.append(current_series)
                 active_table_models[current_series] = model = EpisodeTableModel(current_series)
                 self.tableview.setModel(model)
-                try:
-                    self.tableview.selectionModel().selectionChanged.connect(self.load_episode_information_at_index)
-                except AttributeError:
-                    pass # Selection Model is not available
                 
                 self.existing_series = current_series                
                 job = ModelFiller(model, self, movie = movie)
@@ -1708,14 +1741,14 @@ class Settings(object):
             shutil.move(filepath, destination)
 
             
-def create_default_image(episode):
+def create_default_image(episode, additional_text = ""):
     multiplikator = 5
     width = 16 * multiplikator
     heigth = 10 * multiplikator
     spacing = 1.25
 
     #extract text
-    text = episode.series[0] + "\n" + episode.get_descriptor()
+    text = episode.series[0] + "\n" + episode.get_descriptor() + "\n" + additional_text
 
     #initalize pixmap object
     pixmap = QtGui.QPixmap(width, heigth)
@@ -1750,8 +1783,8 @@ def get_complementary_color(qtcolor):
     return QtGui.QColor.fromHsv(h, s, v, a)
 
 
-def get_color_shade(index, number_of_colors):      
-    return [QtGui.QColor.fromHsvF(colornumber/float(number_of_colors), 1, 0.9, 0.25) for colornumber in range(number_of_colors)][index % number_of_colors]
+def get_color_shade(index, number_of_colors, saturation = 0.25):      
+    return [QtGui.QColor.fromHsvF(colornumber/float(number_of_colors), 1, 0.9, saturation) for colornumber in range(number_of_colors)][index % number_of_colors]
 
 class MovieClip(object):
     def __init__(self, filepath, identifier = None, filesize = None, checksum = None, thumbnails = None):
@@ -1995,7 +2028,7 @@ class Series(object):
         return accumulated_sum
 
     def get_movieclips(self):
-        return None
+        return []
         
     def get_identifier(self):
         return self.identifier.items()[0]
@@ -2035,11 +2068,19 @@ class Episode(object):
     def get_alternative_descriptor(self):
         return "S" + str('%0.2d' % self.descriptor[0]) + "E" + str('%0.2d' % self.descriptor[1])
 
+    
+    def get_thumbnails(self):
+        """ This is a conveniece function """
+        thumbnail_list = []
+        for movieclip in self.get_movieclips():
+            thumbnail_list += movieclip.thumbnails
+        return thumbnail_list
+    
     def get_movieclips(self):
         try:
             return movieclips[self.get_identifier()]
         except KeyError:
-            pass    
+            return [] #return an empty list    
     
     def get_normalized_name(self):
         return self.series[0] + " " + self.get_descriptor() + " - " + self.title
@@ -2126,7 +2167,6 @@ class MovieClipManager(object):
     def remove(self, movieclip, identifier):
         implementation, key = identifier
         self.dictionary[implementation][key].remove(movieclip)
-        save_movieclips()
 
     def __iter__(self):
         return self.dictionary.iteritems()
