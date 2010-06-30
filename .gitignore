@@ -1,5 +1,6 @@
 .settings
 externals & studies
+ffmpeg.exe
 imdb
 movieclips.json
 series.json

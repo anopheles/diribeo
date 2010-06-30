@@ -14,6 +14,10 @@ import logging
 import shutil
 import subprocess
 import functools
+import shlex
+import glob
+import uuid
+
 
 from PyQt4 import QtGui
 from PyQt4 import QtCore
@@ -31,7 +35,7 @@ class WorkerThread(QtCore.QThread):
     
     # Define various signals        
     waiting = QtCore.pyqtSignal()
-    finished = QtCore.pyqtSignal("PyQt_PyObject")  # First argument is optional
+    finished = QtCore.pyqtSignal()
     progress = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject")
     
     # Additional thread information
@@ -47,25 +51,37 @@ class AssignerThread(WorkerThread):
     association_found = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject")
     filesystem_error = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject")
     already_exists_in_another = QtCore.pyqtSignal() # Emitted when movieclip is in _another_ episode
+    load_information = QtCore.pyqtSignal("PyQt_PyObject")
     
     def __init__(self):
         WorkerThread.__init__(self)
 
-    def calculate_checksum(self):
-        checksum = hashlib.sha224()            
-        # Opening the file in binary mode is very important otherwise something completly different is calculated
-        with open(self.filepath, "rb") as f:
-            lines =  f.readlines()  
-            line_length = len(lines)  
-            counter = 0      
-            for line in lines:
-                checksum.update(line)
-                if counter % 512 == 0:
-                    self.progress.emit(counter, line_length)
-                counter += 1
-        f.close()
+    def hash_file(self, file_obj,
+                  hasher,
+                  callback=lambda byte_count: None,
+                  blocksize=4096):
         
-        return checksum.hexdigest()
+        byte_count = 0
+        for block in iter(functools.partial(file_obj.read, blocksize), ''):
+            hasher.update(block)
+            byte_count += len(block)
+            callback(byte_count, self.filesize)
+        return hasher.hexdigest()  
+    
+    
+    def calculate_checksum(self):
+        self.filesize = os.path.getsize(self.filepath)
+    
+        # For debugging purposes
+        def print_progress(byte_count, filesize):
+            print '\r%d/%d %6.2f' % (byte_count,
+                                 filesize,
+                                 100.0 * byte_count / filesize),
+    
+        with open(self.filepath, "rb") as iso_file:
+            checksum = self.hash_file(iso_file, hashlib.sha224(), self.progress.emit)
+            return checksum
+        
     
 
 class WorkerThreadManager(object):
@@ -80,8 +96,7 @@ class WorkerThreadManager(object):
         self.statusbar.showMessage(self.ready)       
         
 
-    def process_finished(self, worker_thread): 
-        print "Abgemeldet", worker_thread       
+    def process_finished(self, worker_thread):   
         try:
             del self.worker_thread_dict[worker_thread]
         except KeyError:
@@ -99,7 +114,6 @@ class WorkerThreadManager(object):
         self.worker_thread_dict[worker_thread] = [current, maximum]
         
     def append(self, worker_thread):        
-        print "Angemeldet", worker_thread
         worker_thread.waiting.connect(functools.partial(self.process_waiting, worker_thread))
         worker_thread.finished.connect(functools.partial(self.process_finished, worker_thread))
         worker_thread.progress.connect(functools.partial(self.process_progress, worker_thread))
@@ -180,7 +194,7 @@ class MovieClipGuesser(WorkerThread):
         items = answer_dict.items()
         items.sort(key = itemgetter(1))
 
-        self.finished.emit(None)
+        self.finished.emit()
         
         self.possible_matches_found.emit(self.filepath, items, self.movieclip)
             
@@ -259,6 +273,7 @@ class MovieClipAssociator(AssignerThread):
         
         if not os.path.isfile(self.filepath) or not settings.is_valid_file_extension(self.filepath):
             self.filesystem_error.emit(self.episode, self.filepath)
+            self.finished.emit()
         else:
             self.waiting.emit()
             if self.clip is None:
@@ -266,19 +281,17 @@ class MovieClipAssociator(AssignerThread):
             else:
                 self.checksum = self.clip.checksum  
         
-        if self.clip is None:
-            self.clip = MovieClip(self.filepath, identifier = self.episode.identifier, checksum = self.checksum)        
-        # Check and see if the movieclip is already associated with _another_ movie and display warning
-        unique = movieclips.check_unique(self.clip, self.identifier)
-        
-        if not unique:
-            print "NOT UNIQUE"
-            self.already_exists_in_another.emit()            
-        else:
-            self.assign()
+            if self.clip is None:
+                self.clip = MovieClip(self.filepath, identifier = self.episode.identifier, checksum = self.checksum)        
+            # Check and see if the movieclip is already associated with _another_ movie and display warning
+            unique = movieclips.check_unique(self.clip, self.identifier)
+            
+            if not unique:
+                self.already_exists_in_another.emit()            
+            else:
+                self.assign()
     
     def assign(self):
-            print "ASSSIGN"
             """ Here is a list of possibilities that might occur:
                     a) The clip is already in the movieclip dict and in its designated folder
                     b) The clip is already in the movieclip dict, but not in its designated folder
@@ -334,7 +347,8 @@ class MovieClipAssociator(AssignerThread):
                 # Save the movie clips to file
                 save_movieclips()    
                             
-            self.finished.emit(self.episode)
+            self.load_information.emit(self.episode)
+            self.finished.emit()
 
 
      
@@ -354,6 +368,7 @@ class MovieClipAssigner(AssignerThread):
     def run(self):
         if not os.path.isfile(self.filepath) or not settings.is_valid_file_extension(self.filepath):
             self.filesystem_error.emit(None, self.filepath)
+            self.finished.emit()
         else:           
             self.waiting.emit()     
             self.movieclip = MovieClip(self.filepath, checksum = self.calculate_checksum())
@@ -362,7 +377,7 @@ class MovieClipAssigner(AssignerThread):
                     
             if len(episode_dict.items()) == 0 or episode_dict.items()[0][0] is None:
                 self.no_association_found.emit()
-                self.finished.emit(None)   
+                self.finished.emit()   
             else:
                 # Assign first movieclip to first episode and first movieclip found
                 self.assign(episode_dict.items()[0][0], episode_dict.items()[0][1])
@@ -395,21 +410,74 @@ class MovieClipAssigner(AssignerThread):
             # Save movieclips to file 
             save_movieclips()
             
-        self.finished.emit(None)
-            
+        self.finished.emit()
+ 
+ 
+class ThumbnailGenerator(WorkerThread):
+    thumbnails_created = QtCore.pyqtSignal("PyQt_PyObject")
+    error_in_thumbnail_creation = QtCore.pyqtSignal()
+    
+    def __init__(self, movieclip, episode):
+        WorkerThread.__init__(self)
+        self.filepath = movieclip.filepath
+        self.movieclip = movieclip 
+        self.episode = episode
+        self.image_list = []    
+        self.description = "Generating thumbnails"           
+
+    def is_temp_dir_empty(self):
+        filelist = glob.glob("*.jpeg")        
+        if len(filelist) == 0:
+            return True        
+
+    def run(self):
+        self.waiting.emit()
+        
+        #ffmpeg -i foo.avi -r 1 -s WxH -f image2 foo-%03d.jpeg
+        #http://www.ffmpeg.org/ffmpeg-doc.html
+        #i = filename, r = framerate, s = size, f = force format, t=duration in s
+        unique_identifier = str(uuid.uuid4())
+        self.prefix = os.path.join(settings.get_thumbnail_folder(), unique_identifier)
+        destination = os.path.join(settings.get_thumbnail_folder(), unique_identifier + "-%03d.jpeg") 
+        command = 'ffmpeg -i "'+ str(self.filepath) + '" -r 1/12  -t 50 -ss 90 -f image2 "' + destination + '"'              
+        args = shlex.split(command)
+        
+        proc = subprocess.Popen(args, shell = True, stdout=subprocess.PIPE)
+        proc.wait()        
+        self.collect_images()
+        
+        if len(self.image_list) > 0:
+            self.movieclip.thumbnails = self.image_list
+            save_movieclips()
+            self.thumbnails_created.emit(self.episode)
+        else:
+            self.error_in_thumbnail_creation.emit()
+        
+        self.finished.emit()
+    
+    def collect_images(self):
+        filelist = glob.glob(self.prefix + "*.jpeg")
+        for file in filelist:
+            self.image_list.append(file)
+        
 
 class SeriesSearchWorker(WorkerThread):
+    no_connection_available = QtCore.pyqtSignal() # Is emitted whenever there is no active internet connection available
    
     def __init__(self, serieslist, searchfield):
         WorkerThread.__init__(self)
         self.serieslist = serieslist
         self.searchfield = searchfield
+        self.no_connection_available.connect(mainwindow.no_internet_connection_warning)
 
     def run(self):
         self.serieslist.clear()        
-        result = imdbwrapper.search_movie(self.searchfield.text())
-        for series_widget_item in result:             
-            self.serieslist.addItem(series_widget_item) 
+        try:
+            result = imdbwrapper.search_movie(self.searchfield.text())            
+            for series_widget_item in result:             
+                self.serieslist.addItem(series_widget_item) 
+        except NoConnectionAvailable:
+            self.no_connection_available.emit()
 
 
 class ModelFiller(WorkerThread):
@@ -448,7 +516,7 @@ class ModelFiller(WorkerThread):
         
         self.model.filled = True
         save_series()            
-        self.finished.emit(None)
+        self.finished.emit()
         self.update_tree.emit(self.series)
         self.update_tableview.emit(self.model)
              
@@ -606,8 +674,10 @@ class MovieClipInformationWidget(QtGui.QFrame):
     
     def __init__(self, movieclip, movie, parent = None):
         QtGui.QFrame.__init__(self, parent)
+        self.vbox = QtGui.QVBoxLayout()
         self.gridlayout = QtGui.QGridLayout()
-        self.setLayout(self.gridlayout)
+        self.vbox.addLayout(self.gridlayout)
+        self.setLayout(self.vbox)
         self.setFrameShape(QtGui.QFrame.StyledPanel)
         
         self.control_layout = QtGui.QHBoxLayout()
@@ -625,16 +695,29 @@ class MovieClipInformationWidget(QtGui.QFrame):
         icon_remove = QtGui.QIcon("images/edit-clear.png")
         icon_delete = QtGui.QIcon("images/process-stop.png")
         icon_open = QtGui.QIcon("images/document-open.png")
+        icon_thumbnail = QtGui.QIcon("images/applications-multimedia.png")
         
         self.play_button = QtGui.QPushButton(icon_start, "")  
         self.remove_button = QtGui.QPushButton(icon_remove, "") 
         self.delete_button = QtGui.QPushButton(icon_delete, "")
         self.open_button = QtGui.QPushButton(icon_open, "")  
+        self.thumbnail_button = QtGui.QPushButton(icon_thumbnail, "")
         
         if available:
             self.control_layout.addWidget(self.delete_button)
             self.control_layout.addWidget(self.play_button)
             self.control_layout.addWidget(self.open_button)
+            self.control_layout.addWidget(self.thumbnail_button)
+            
+            for filepath in self.movieclip.thumbnails:
+                if os.path.exists(filepath):
+                    temp_label = QtGui.QLabel()
+                    qimage = QtGui.QImage(filepath)
+                    pixmap = QtGui.QPixmap.fromImage(qimage)
+                    pixmap = pixmap.scaledToWidth(200)
+                    
+                    temp_label.setPixmap(pixmap)
+                    self.vbox.addWidget(temp_label)
         
         self.control_layout.addWidget(self.remove_button)
         
@@ -646,6 +729,7 @@ class MovieClipInformationWidget(QtGui.QFrame):
         self.delete_button.clicked.connect(self.delete)
         self.remove_button.clicked.connect(self.remove)
         self.open_button.clicked.connect(self.open_folder)
+        self.thumbnail_button.clicked.connect(functools.partial(mainwindow.generate_thumbnails, self.movie, self.movieclip))
         
         self.load_information(movieclip)        
 
@@ -688,7 +772,7 @@ class MovieClipInformationWidget(QtGui.QFrame):
         # Not really pythonic
         if folder is not None: 
             try:
-                os.startfile()
+                os.startfile(folder)
             except AttributeError:
                 # Not very portable            
                 subprocess.Popen(['nautilus', self.movieclip.get_folder()])
@@ -951,13 +1035,11 @@ class LocalSearchDock(QtGui.QDockWidget):
         
         # Handle signals
         self.tab.currentChanged.connect(self.handle_tab_change)
-        self.wizard = SeriesAdderWizard()
         
     def handle_tab_change(self, index):
         if index == self.tab.indexOf(self.dummywidget):
             self.tab.setCurrentWidget(self.local_search)
-            self.wizard.restart()
-            self.wizard.show()
+            mainwindow.start_series_adder_wizard()
 
 
 class SeriesAdderWizard(QtGui.QWizard):
@@ -971,7 +1053,6 @@ class SeriesAdderWizard(QtGui.QWizard):
     
     def wizard_complete(self):
         self.selection_finished.emit(self.online_search.onlineserieslist.selectedItems())
-
        
         
 class OnlineSearch(QtGui.QWizardPage):
@@ -997,11 +1078,7 @@ class OnlineSearch(QtGui.QWizardPage):
         onlinelayout.addWidget(self.onlineserieslist)
         
         self.seriessearcher = SeriesSearchWorker(self.onlineserieslist, self.onlinesearchfield)
-        self.onlinesearchbutton.clicked.connect(self.search, Qt.QueuedConnection)
-   
-    def initializePage(self):
-        self.onlineserieslist.clear()
-        self.onlinesearchfield.clear()       
+        self.onlinesearchbutton.clicked.connect(self.search, Qt.QueuedConnection)    
         
     def keyPressEvent(self, event):
        if event.key() in (QtCore.Qt.Key_Return, QtCore.Qt.Key_Enter):           
@@ -1069,19 +1146,18 @@ class MainWindow(QtGui.QMainWindow):
         self.addToolBar(self.toolbar)
         self.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
         
-        # Initialize local search
+        # Initialize local and online search
         local_search_dock = self.local_search_dock = LocalSearchDock()
         self.local_search = local_search_dock.local_search
         
-        # Initialize online search
+        # Initialize online doc
         series_info_dock = SeriesInformationDock()
         self.seriesinfo =  series_info_dock.seriesinfo
         
         # Manage the docks
         self.addDockWidget(Qt.LeftDockWidgetArea, local_search_dock)                            
         self.addDockWidget(Qt.RightDockWidgetArea, series_info_dock)
-       
-        self.local_search_dock.wizard.selection_finished.connect(self.load_items_into_table)
+        
         self.local_search.localseriestree.itemClicked.connect(self.load_into_local_table)         
         self.seriesinfo.delete_button.clicked.connect(self.delete_series)
         
@@ -1107,7 +1183,16 @@ class MainWindow(QtGui.QMainWindow):
                 self.sender().quit()
         except AttributeError:
             pass
-            
+                 
+    def error_in_thumbnail_creation_warning(self, movieclip, episode):
+        #TODO
+        filepath = movieclip.filepath
+        messagebox = QtGui.QMessageBox(QtGui.QMessageBox.Warning, "ERROR in THUMBNAIL creation", "")
+        messagebox.setText("You're trying to assign a movie clip to the same movie multiple times.")
+        messagebox.setInformativeText("The movie clip (" + os.path.basename(filepath) + ") is already associated with this episode")
+        messagebox.setStandardButtons(QtGui.QMessageBox.Ok) 
+        messagebox.setDetailedText(filepath)
+        messagebox.exec_()
 
     def already_exists_warning(self, movie, filepath):
         messagebox = QtGui.QMessageBox(QtGui.QMessageBox.Warning, "Movie Clip already associated", "")
@@ -1125,6 +1210,16 @@ class MainWindow(QtGui.QMainWindow):
         messagebox.setDetailedText(filepath)
         messagebox.exec_()
 
+    def no_internet_connection_warning(self):
+        #TODO
+        messagebox = QtGui.QMessageBox(QtGui.QMessageBox.Information, "NO INTERNET CONNECTION", "")
+        messagebox.setText("You must add a movie clip file to an episode.")
+        messagebox.setInformativeText("Make sure that the movie clip you want to add has a proper extension and is not a folder")
+        messagebox.setStandardButtons(QtGui.QMessageBox.Ok) 
+        messagebox.setDetailedText("nothing")
+        messagebox.exec_()
+    
+    
     def association_found_info(self, movie, episode):
         #TODO
         messagebox = QtGui.QMessageBox(QtGui.QMessageBox.Information, "Association FOUND", "")
@@ -1145,9 +1240,16 @@ class MainWindow(QtGui.QMainWindow):
         if result == QtGui.QMessageBox.Ok:
             self.sender().assign()
         else:
-            self.sender().finished.emit(self.sender().episode)
+            self.sender().load_information.emit(self.sender().episode)
             self.sender().quit()
 
+    
+    def start_series_adder_wizard(self):
+        wizard = SeriesAdderWizard()
+        wizard.selection_finished.connect(self.load_items_into_table)             
+        wizard.show()
+        wizard.exec_()
+    
     def start_association_wizard(self, filepath, episodes, movieclip):
         self.filepath = filepath
         self.movieclip = movieclip
@@ -1156,6 +1258,12 @@ class MainWindow(QtGui.QMainWindow):
         association_wizard.show()
         association_wizard.exec_()
 
+    def generate_thumbnails(self, episode, movieclip):
+        job = ThumbnailGenerator(movieclip, episode)
+        job.thumbnails_created.connect(self.seriesinfo.load_information, Qt.QueuedConnection)
+        job.error_in_thumbnail_creation.connect(functools.partial(self.error_in_thumbnail_creation_warning, movieclip, episode), Qt.QueuedConnection)        
+        self.jobs.append(job)
+        job.start()
 
     def guess_episode_with_movieclip(self, movieclip):
         job = MovieClipGuesser(movieclip)
@@ -1174,7 +1282,7 @@ class MainWindow(QtGui.QMainWindow):
 
     def add_movieclip_to_episode(self, filepath, episode, movieclip = None):        
         job = MovieClipAssociator(filepath, episode, movieclip = movieclip) 
-        job.finished.connect(self.seriesinfo.load_information, Qt.QueuedConnection)
+        job.load_information.connect(self.seriesinfo.load_information, Qt.QueuedConnection)
         job.already_exists.connect(self.already_exists_warning, Qt.QueuedConnection) 
         job.already_exists_in_another.connect(self.display_duplicate_warning, Qt.QueuedConnection)             
         job.filesystem_error.connect(self.filesystem_error_warning, Qt.QueuedConnection)
@@ -1289,7 +1397,7 @@ class MainWindow(QtGui.QMainWindow):
             If the series already exists the already existing series is loaded into the table view.
         '''
         
-        assert len(items) == 1 # Make sure only one item is passed to this function since more than one item can cause concurrency problems     
+        assert len(items) <= 1 # Make sure only one item is passed to this function since more than one item can cause concurrency problems     
         
         for item in items:           
             movie = item.movie
@@ -1301,7 +1409,10 @@ class MainWindow(QtGui.QMainWindow):
                 series_list.append(current_series)
                 active_table_models[current_series] = model = EpisodeTableModel(current_series)
                 self.tableview.setModel(model)
-                self.tableview.selectionModel().selectionChanged.connect(self.load_episode_information_at_index)
+                try:
+                    self.tableview.selectionModel().selectionChanged.connect(self.load_episode_information_at_index)
+                except AttributeError:
+                    pass # Selection Model is not available
                 
                 self.existing_series = current_series                
                 job = ModelFiller(model, self, movie = movie)
@@ -1411,13 +1522,13 @@ def SeriesOrganizerDecoder(dct):
         return datetime.date.fromordinal(dct["ordinal"])
 
     if '__episode__' in dct:
-        return Episode(title = dct["title"], descriptor = dct["descriptor"], series = dct["series"], plot = dct['plot'], date = dct["date"], identifier = dct["identifier"], rating = dct["rating"], director = dct["director"], genre = dct["genre"], runtime = dct["runtime"])
+        return Episode(title = dct["title"], descriptor = dct["descriptor"], series = dct["series"], plot = dct['plot'], date = dct["date"], identifier = dct["identifier"], rating = dct["rating"], director = dct["director"], genre = dct["genre"], runtime = dct["runtime"], seen_it = dct["seen_it"])
 
     if '__series__' in dct:
         return Series(dct["title"], identifier = dct["identifier"], episodes = dct["episodes"], rating = dct["rating"], director = dct["director"], genre = dct["genre"], date = dct["date"])
 
     if '__movieclip__' in dct:        
-        return MovieClip(dct['filepath'], identifier = dct['identifier'], filesize = dct['filesize'], checksum = dct['checksum'])
+        return MovieClip(dct['filepath'], identifier = dct['identifier'], filesize = dct['filesize'], checksum = dct['checksum'], thumbnails = dct["thumbnails"])
     
     if '__movieclips__' in dct:        
         return MovieClipManager(dictionary = dct['dictionary'])
@@ -1435,7 +1546,7 @@ class SeriesOrganizerEncoder(json.JSONEncoder):
     def default(self, obj):
         
         if isinstance(obj, Episode):
-            return { "__episode__" : True, "title" : obj.title, "descriptor" : obj.descriptor, "series" : obj.series, "plot" : obj.plot, "date" : obj.date, "identifier" : obj.identifier, "rating" : obj.rating, "director" : obj.director, "runtime" : obj.runtime, "genre" : obj.genre}
+            return { "__episode__" : True, "title" : obj.title, "descriptor" : obj.descriptor, "series" : obj.series, "plot" : obj.plot, "date" : obj.date, "identifier" : obj.identifier, "rating" : obj.rating, "director" : obj.director, "runtime" : obj.runtime, "genre" : obj.genre, "seen_it" : obj.seen_it}
 
         if isinstance(obj, datetime.date):
             return { "__date__" : True, "ordinal" : obj.toordinal()}
@@ -1444,7 +1555,7 @@ class SeriesOrganizerEncoder(json.JSONEncoder):
             return { "__series__" : True, "title" : obj.title, "episodes" : obj.episodes, "identifier" : obj.identifier, "rating" : obj.rating,  "director" : obj.director, "genre" : obj.genre, "date" : obj.date}
 
         if isinstance(obj, MovieClip):
-            return { "__movieclip__" : True, "filepath" : obj.filepath, "filesize" : obj.filesize, "checksum" : obj.checksum, "identifier" : obj.identifier}        
+            return { "__movieclip__" : True, "filepath" : obj.filepath, "filesize" : obj.filesize, "checksum" : obj.checksum, "identifier" : obj.identifier, "thumbnails" : obj.thumbnails}        
         
         if isinstance(obj, Settings):
             return { "__settings__" : True, "settings" : obj.settings} 
@@ -1468,7 +1579,8 @@ class Settings(object):
                              "deployment_folder" : os.path.join(self.get_user_dir(),".diribeo"),
                              "automatic_thumbnail_creation" : False,
                              "show_all_movieclips" : True,
-                             "normalize_names" : True}
+                             "normalize_names" : True,
+                             "thumbnail_folder" : "images"}
         else:
             self.settings = settings      
 
@@ -1480,6 +1592,10 @@ class Settings(object):
             return self.settings[attribute_name]
         except KeyError:
             pass
+
+    def get_thumbnail_folder(self):
+        return os.path.join(self.settings["deployment_folder"], self.settings["thumbnail_folder"])
+
 
     def get_normalized_filename(self, filename, episode):
          name, ext = os.path.splitext(filename)
@@ -1607,7 +1723,7 @@ def get_color_shade(index, number_of_colors):
     return [QtGui.QColor.fromHsvF(colornumber/float(number_of_colors), 1, 0.9, 0.25) for colornumber in range(number_of_colors)][index % number_of_colors]
 
 class MovieClip(object):
-    def __init__(self, filepath, identifier = None, filesize = None, checksum = None):
+    def __init__(self, filepath, identifier = None, filesize = None, checksum = None, thumbnails = None):
         self.filepath = filepath
                     
         self.identifier = identifier 
@@ -1617,8 +1733,10 @@ class MovieClip(object):
             self.get_filesize()
         else:
             self.filesize = filesize
-            
-        self.thumbnails = []
+        
+        if thumbnails is None:
+            thumbnails = []    
+        self.thumbnails = thumbnails
         
     def get_filename(self):
         return os.path.basename(self.filepath)    
@@ -1668,6 +1786,13 @@ class MovieClip(object):
         
     def __repr__(self):
         return "M(" + self.filepath + ")"
+
+
+
+class NoConnectionAvailable(Exception):
+    def __init__(self):
+        pass
+
     
 class IMDBWrapper(object):
     def __init__(self):
@@ -1732,17 +1857,17 @@ class IMDBWrapper(object):
         series.date = movie.get('year')
 
 
-    def search_movie(self, title): 
-        query = self.ia.search_movie(title)
-
-        output = []
-        # filter out unwanted movies:
-        for movie in query:
-            if movie.get('kind') == "tv series":
-                output.append(SeriesWidgetItem(movie, movie.get('smart long imdb canonical title')))
-
-        return output
-
+    def search_movie(self, title):
+        from imdb import IMDb, IMDbError 
+        try: 
+            output = []
+            query = self.ia.search_movie(title)
+            for movie in query:
+                if movie.get('kind') == "tv series":
+                   output.append(SeriesWidgetItem(movie, movie.get('smart long imdb canonical title')))
+            return output
+        except IMDbError:
+            raise NoConnectionAvailable
 
     def get_series_from_movie(self, movie):
         """ Checks if the IMDB movie is already present in the series list.
@@ -1838,7 +1963,6 @@ class Series(object):
 
         return accumulated_sum
 
-
     def get_movieclips(self):
         return None
         
@@ -1846,7 +1970,7 @@ class Series(object):
         return self.identifier.items()[0]
 
 class Episode(object):
-    def __init__(self, title = "", descriptor = None, series = "", date = None, plot = "", identifier = None, rating = None, director = "", runtime = "", genre = ""):
+    def __init__(self, title = "", descriptor = None, series = "", date = None, plot = "", identifier = None, rating = None, director = "", runtime = "", genre = "", seen_it = False):
         
         self.title = title
         self.descriptor = descriptor
@@ -1858,6 +1982,7 @@ class Episode(object):
         self.director = director
         self.runtime = runtime
         self.genre = genre
+        self.seen_it = seen_it
 
 
     def __repr__(self):
@@ -1907,7 +2032,7 @@ class Episode(object):
 class MovieClipManager(object):
     def __init__(self, dictionary = None):
         if dictionary == None:
-            self.dictionary = {"imdb" : {}}       
+            self.dictionary = {"imdb" : {}} #TODO  
         else:
             self.dictionary = dictionary
 
