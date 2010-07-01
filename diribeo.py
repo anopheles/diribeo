@@ -1450,6 +1450,7 @@ class MainWindow(QtGui.QMainWindow):
             self.load_existing_series_into_table(series)        
 
     def load_existing_series_into_table(self, series):
+        self.existing_series = series
         try:
             self.tableview.setModel(active_table_models[series]) 
         except KeyError:
@@ -1468,7 +1469,7 @@ class MainWindow(QtGui.QMainWindow):
         for item in items:           
             movie = item.movie
 
-            existing_series = imdbwrapper.get_series_from_movie(movie)            
+            self.existing_series = existing_series = imdbwrapper.get_series_from_movie(movie)            
             
             if existing_series is None: 
                 current_series = Series(item.title)
