@@ -502,12 +502,12 @@ class ModelFiller(WorkerThread):
     insert_into_tree = QtCore.pyqtSignal("PyQt_PyObject")
     update_tree = QtCore.pyqtSignal("PyQt_PyObject")
     update_tableview = QtCore.pyqtSignal("PyQt_PyObject")
+    update_seriesinformation = QtCore.pyqtSignal("PyQt_PyObject")
     
-    def __init__(self, model, view, movie = None):
+    def __init__(self, model, movie = None):
         WorkerThread.__init__(self)
         self.movie = movie
         self.model = model
-        self.view = view
         self.series = self.model.series
         self.model.set_generator(imdbwrapper.get_episodes(movie))
         self.description = "Filling a model"
@@ -518,10 +518,10 @@ class ModelFiller(WorkerThread):
 
         # Make the progress bar idle
         self.insert_into_tree.emit(self.series)  
-        self.waiting.emit()        
-        self.view.seriesinfo.load_information(self.series)
+        self.waiting.emit()     
+        self.update_seriesinformation.emit(self.series)   
         imdbwrapper.get_more_information(self.series, self.movie)
-        self.view.seriesinfo.load_information(self.series)
+        self.update_seriesinformation.emit(self.series)  
             
 
         for episode, episodenumber in self.model.generator:            
@@ -806,7 +806,7 @@ class MovieClipInformationWidget(QtGui.QFrame):
         # Not really pythonic
         if folder is not None: 
             try:
-                os.startfile(folder)
+                os.startfile(folder) # Linux does not have startfile
             except AttributeError:
                 # Not very portable            
                 subprocess.Popen(['nautilus', self.movieclip.get_folder()])
@@ -823,8 +823,13 @@ class MovieClipInformationWidget(QtGui.QFrame):
         self.update.emit(self.movie)
     
     def play(self):
-        if os.path.isfile(self.movieclip.filepath):
-            os.startfile(os.path.normpath(self.movieclip.filepath))
+        filepath = os.path.normpath(self.movieclip.filepath)
+        if os.path.isfile(filepath):            
+            try:
+                os.startfile(filepath) # Linux does not have startfile
+            except AttributeError:
+                # Not very portable  
+                subprocess.Popen(['vlc', filepath])
 
 class MovieClipOverviewWidget(QtGui.QWidget):
     def __init__(self, parent = None, movieclips = None):
@@ -924,7 +929,7 @@ class SeriesInformationWidget(QtGui.QWidget):
         self.movieclipwidget = SeriesInformationCategory("Movie Clips", type = MovieClipOverviewWidget)        
         self.director = SeriesInformationCategory("Director")
         self.rating = SeriesInformationCategory("Ratings")
-        self.airdate = SeriesInformationCategory("Airdate")
+        self.airdate = SeriesInformationCategory("Air Date")
         self.plot = SeriesInformationCategory("Plot", type = QtGui.QTextEdit)
         self.genre = SeriesInformationCategory("Genre")
         
@@ -940,11 +945,15 @@ class SeriesInformationWidget(QtGui.QWidget):
         self.update_button = self.title.content.update_button
         
         self.seenit.content.clicked.connect(self.save_seen_it)
+        self.plot.content.textChanged.connect(self.save_plot)
         
         self.show_main_widget(False)
         
         self.setAcceptDrops(True)
 
+    def save_plot(self):
+        self.movie.plot = self.plot.content.toPlainText()
+    
     def save_seen_it(self):
         self.movie.seen_it = self.seenit.content.isChecked()
 
@@ -995,7 +1004,6 @@ class SeriesInformationWidget(QtGui.QWidget):
         self.airdate.setText(str(movie.date))
         self.genre.setText(movie.genre)
         self.movieclipwidget.content.load_movieclips(movie)          
-
         
     def dragEnterEvent(self, event):
         event.acceptProposedAction()
@@ -1029,33 +1037,43 @@ class EpisodeTableWidget(QtGui.QTableView):
         self.callback = callback
 
     def setModel(self, model):
-        
         try:
             if model.filled:
                 QtGui.QTableView.setModel(self, model)
                 self.selectionModel().selectionChanged.connect(self.callback)
-                self.overview.tableview.show()
-                self.overview.waiting_widget.hide()
+                self.overview.stacked_widget.setCurrentWidget(self)
             else:
-                self.overview.tableview.hide()
-                self.overview.waiting_widget.show()
+                self.overview.stacked_widget.setCurrentWidget(self.overview.waiting_widget)
 
         except AttributeError:
-            self.overview.tableview.hide()
-            self.overview.waiting_widget.show()
+            self.overview.stacked_widget.setCurrentWidget(self.overview.getting_started_widget)
 
 class EpisodeOverviewWidget(QtGui.QWidget):    
     def __init__(self, parent = None):
-        QtGui.QTableView.__init__(self, parent)
+        QtGui.QWidget.__init__(self, parent)
+        
+        self.stacked_widget = QtGui.QStackedWidget() 
         
         self.tableview = EpisodeTableWidget(self)        
-        self.waiting_widget = WaitingWidget()  
+        self.waiting_widget = WaitingWidget() 
+        self.getting_started_widget = GettingStartedWidget() 
+        
+        self.stacked_widget.addWidget(self.tableview)
+        self.stacked_widget.addWidget(self.waiting_widget)
+        self.stacked_widget.addWidget(self.getting_started_widget)
+        self.stacked_widget.setCurrentWidget(self.waiting_widget)
         
         vbox = QtGui.QVBoxLayout()
+        vbox.addWidget(self.stacked_widget)
         self.setLayout(vbox)
-        
-        vbox.addWidget(self.tableview)
-        vbox.addWidget(self.waiting_widget)
+
+class GettingStartedWidget(QtGui.QWidget):
+    def __init__(self, parent = None):
+        QtGui.QWidget.__init__(self, parent)
+        vbox = QtGui.QVBoxLayout()
+        vbox.addWidget(QtGui.QLabel("Getting started"))
+        self.setLayout(vbox)
+
 
 class SeriesInformationDock(QtGui.QDockWidget):
     def __init__(self, parent = None):
@@ -1216,6 +1234,7 @@ class MainWindow(QtGui.QMainWindow):
         self.seriesinfo.delete_button.clicked.connect(self.delete_series)
         
         self.load_all_series_into_their_table()
+        self.tableview.setModel(None)
         
         self.setWindowTitle("Diribeo")
         self.resize_to_percentage(66)
@@ -1478,8 +1497,9 @@ class MainWindow(QtGui.QMainWindow):
                 self.tableview.setModel(model)
                 
                 self.existing_series = current_series                
-                job = ModelFiller(model, self, movie = movie)
+                job = ModelFiller(model, movie = movie)
                 job.update_tree.connect(self.local_search.update_tree, type = QtCore.Qt.QueuedConnection)
+                job.update_seriesinformation.connect(self.seriesinfo.load_information, type = QtCore.Qt.QueuedConnection)
                 job.update_tableview.connect(self.tableview.setModel)
                 job.insert_into_tree.connect(self.local_search.insert_top_level_item, type = QtCore.Qt.QueuedConnection)
                 self.jobs.append(job)
