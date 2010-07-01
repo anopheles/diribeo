@@ -17,7 +17,7 @@ import functools
 import shlex
 import glob
 import uuid
-import random
+
 
 
 from PyQt4 import QtGui
@@ -543,8 +543,8 @@ class EpisodeTableModel(QtCore.QAbstractTableModel):
         self.episodes = self.series.episodes
         self.filled = False
 
-        self.row_lookup = lambda episode: ["", episode.title, episode.date, episode.plot]
-        self.column_lookup = ["", "Title", "Date", "Plot Summary"]
+        self.row_lookup = lambda episode: ["", episode.title, episode.seen_it, episode.date, episode.plot]
+        self.column_lookup = ["", "Title", "Seen it?", "Date", "Plot Summary"]
 
     def insert_episode(self, episode):
         self.episodes.append(episode)
@@ -560,20 +560,42 @@ class EpisodeTableModel(QtCore.QAbstractTableModel):
 
     def data(self, index, role):
         episode = self.episodes[index.row()]        
-        if role == QtCore.Qt.DisplayRole: 
-            return QtCore.QString(unicode(self.row_lookup(episode)[index.column()]))  
+        if role == QtCore.Qt.DisplayRole:
+            if index.column() != 2:
+                return QtCore.QString(unicode(self.row_lookup(episode)[index.column()])) 
+         
         elif role == QtCore.Qt.DecorationRole:
             if index.column() == 0:
                 return create_default_image(episode, additional_text = str(len(episode.get_thumbnails())))
+        
+        elif role == QtCore.Qt.CheckStateRole:
+            if index.column() == 2:
+                if self.row_lookup(episode)[2]:
+                    return Qt.Checked
+                else:
+                    return Qt.Unchecked
+            
         elif role == QtCore.Qt.BackgroundRole:
             if not episode.seen_it:
                 return self.get_gradient_bg(episode.descriptor[0])
             return self.get_gradient_bg(episode.descriptor[0], saturation = 0.5)
+        
         elif role == QtCore.Qt.TextAlignmentRole:
             return QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter
 
         return QtCore.QVariant()     
 
+    
+    def setData(self, index, value, role):
+        if role == Qt.CheckStateRole:
+            boolean_value = False
+            if value == Qt.Checked:
+                boolean_value = True
+            self.episodes[index.row()].seen_it = boolean_value 
+            self.dataChanged.emit(index, index)
+            return True
+        return False
+    
     def get_gradient_bg(self, index, saturation = 0.25):            
         gradient = QtGui.QLinearGradient(0, 0, 0, 200)
         backgroundcolor = get_color_shade(index, 5, saturation)
@@ -582,7 +604,9 @@ class EpisodeTableModel(QtCore.QAbstractTableModel):
         gradient.setColorAt(1.0, comp_backgroundcolor.lighter(150))
         return QtGui.QBrush(gradient)
 
-    def flags(self, index):
+    def flags(self, index):        
+        if index.column() == 2:
+            return Qt.ItemIsEnabled | Qt.ItemIsUserCheckable | Qt.ItemIsSelectable
         return Qt.ItemIsEnabled | Qt.ItemIsSelectable
 
     def headerData(self, section, orientation, role):
@@ -1039,7 +1063,8 @@ class EpisodeTableWidget(QtGui.QTableView):
     def setModel(self, model):
         try:
             if model.filled:
-                QtGui.QTableView.setModel(self, model)
+                QtGui.QTableView.setModel(self, model)               
+                model.dataChanged.connect(self.callback)
                 self.selectionModel().selectionChanged.connect(self.callback)
                 self.overview.stacked_widget.setCurrentWidget(self)
             else:
@@ -1113,10 +1138,10 @@ class SeriesAdderWizard(QtGui.QWizard):
     selection_finished = QtCore.pyqtSignal("PyQt_PyObject")
     
     def __init__(self, parent = None):
-       QtGui.QWizard.__init__(self, parent) 
-       self.online_search = OnlineSearch()
-       self.addPage(self.online_search)
-       self.accepted.connect(self.wizard_complete)
+        QtGui.QWizard.__init__(self, parent) 
+        self.online_search = OnlineSearch()
+        self.addPage(self.online_search)
+        self.accepted.connect(self.wizard_complete)
     
     def wizard_complete(self):
         self.selection_finished.emit(self.online_search.onlineserieslist.selectedItems())
@@ -1150,8 +1175,8 @@ class OnlineSearch(QtGui.QWizardPage):
         self.onlinesearchbutton.clicked.connect(self.search, Qt.QueuedConnection)    
         
     def keyPressEvent(self, event):
-       if event.key() in (QtCore.Qt.Key_Return, QtCore.Qt.Key_Enter):           
-           self.search()             
+        if event.key() in (QtCore.Qt.Key_Return, QtCore.Qt.Key_Enter):           
+            self.search()             
                   
     def search(self):      
         if len(self.onlinesearchfield.text()) > 0:            
@@ -1188,7 +1213,6 @@ class WaitingWidget(QtGui.QWidget):
         self.setLayout(hbox)
     
 
-
 class MainWindow(QtGui.QMainWindow):
     def __init__(self, parent = None):
         QtGui.QMainWindow.__init__(self, parent)
@@ -1199,6 +1223,10 @@ class MainWindow(QtGui.QMainWindow):
         self.setCentralWidget(self.episode_overview_widget)
         self.tableview = self.episode_overview_widget.tableview
         self.tableview.set_callback(self.load_episode_information_at_index)
+        
+        #delegate = CheckBoxDelegate()
+        #self.tableview.setItemDelegate(delegate)
+        
 
         # Initialize worker thread manager
         self.jobs = WorkerThreadManager()
@@ -1445,23 +1473,15 @@ class MainWindow(QtGui.QMainWindow):
     def load_episode_information_at_index(self, selected, deselected):        
         try:
             index = selected.indexes()[0]
-            last_selection_model = self.tableview.selectionModel()
-            
-            same_row = False
-            try:
-                if self.last_selected_index.row() == index.row() and self.last_selection_model == last_selection_model:
-                    same_row = True
-            except AttributeError:
-                pass
-            
-            if not same_row:
-                self.seriesinfo.load_information(self.existing_series[index.row()])
-                self.last_selected_index = index  
-                self.last_selection_model = last_selection_model               
-                self.tableview.selectRow(index.row())
-  
+        except AttributeError:
+            index = selected            
         except IndexError, TypeError:  
-            pass  
+            pass
+        finally:
+            self.seriesinfo.load_information(self.existing_series[index.row()])           
+            self.tableview.selectRow(index.row())
+        
+ 
 
 
     def load_all_series_into_their_table(self):
