@@ -10,7 +10,7 @@ import re
 import sys
 import os
 import hashlib
-import logging
+import logging as log
 import shutil
 import subprocess
 import functools
@@ -26,9 +26,10 @@ from operator import itemgetter
 
 
 
+
 # Initialize the logger
 log_filename = "logger_output.out"
-logging.basicConfig(filename=log_filename,  format='%(asctime)s %(levelname)s %(message)s', level=logging.DEBUG, filemode='w')
+log.basicConfig(filename=log_filename,  format='%(asctime)s %(levelname)s %(message)s', level=log.DEBUG, filemode='w')
 
 
 class WorkerThread(QtCore.QThread):
@@ -123,7 +124,7 @@ class WorkerThreadManager(object):
         self.worker_thread_dict[worker_thread] = [0,0]
         if not self.timer.isActive():
             self.timer.timeout.emit()
-            self.timer.start(1000);  
+            self.timer.start(1000)  
 
     
     def refresh_progressbar(self):
@@ -136,7 +137,7 @@ class WorkerThreadManager(object):
         if len(list_of_descriptions) > 0:
             self.statusbar.showMessage(", ".join(list_of_descriptions))
         else:
-             self.statusbar.showMessage(self.ready) 
+            self.statusbar.showMessage(self.ready) 
                
                
 class DiribeoProgressbar(QtGui.QProgressBar):
@@ -304,59 +305,59 @@ class MovieClipAssociator(AssignerThread):
                 self.assign()
     
     def assign(self):
-            """ Here is a list of possibilities that might occur:
-                    a) The clip is already in the movieclip dict and in its designated folder
-                    b) The clip is already in the movieclip dict, but not in its designated folder
-                    c) The clip is not in the movieclip dict but already in the folder
-                    d) The clip is not in the movieclip dict and not in the folder
-            """
+        """ Here is a list of possibilities that might occur:
+                a) The clip is already in the movieclip dict and in its designated folder
+                b) The clip is already in the movieclip dict, but not in its designated folder
+                c) The clip is not in the movieclip dict but already in the folder
+                d) The clip is not in the movieclip dict and not in the folder
+        """
+        
+        self.waiting.emit()
+        
+        filename = os.path.basename(self.filepath)
+        
+        # Calculate hypothetical filepath
+        destination = settings.calculate_filepath(self.episode, filename)
+        directory = os.path.dirname(destination)
+        
+        if self.clip in movieclips[self.identifier]:
             
-            self.waiting.emit()
-            
-            filename = os.path.basename(self.filepath)
-            
-            # Calculate hypothetical filepath
-            destination = settings.calculate_filepath(self.episode, filename)
-            directory = os.path.dirname(destination)
-            
-            if self.clip in movieclips[self.identifier]:
-                
-                if os.path.isfile(destination):
-                    # a)
-                    self.already_exists.emit(self.episode, self.filepath)
-                    move_to_folder = False
-                    add_to_movieclips = False                    
-                else:
-                    # b)
-                    move_to_folder = True
-                    add_to_movieclips = False
-                    
+            if os.path.isfile(destination):
+                # a)
+                self.already_exists.emit(self.episode, self.filepath)
+                move_to_folder = False
+                add_to_movieclips = False                    
             else:
-                if os.path.isfile(destination):
-                    # c)
-                    move_to_folder = True
-                    add_to_movieclips = True
-                else:
-                    # d)
-                    move_to_folder = True
-                    add_to_movieclips = True      
+                # b)
+                move_to_folder = True
+                add_to_movieclips = False
+                
+        else:
+            if os.path.isfile(destination):
+                # c)
+                move_to_folder = True
+                add_to_movieclips = True
+            else:
+                # d)
+                move_to_folder = True
+                add_to_movieclips = True      
+        
+        if move_to_folder:
+            # Check if there is already a file with the same name, normalizes file name if set to do so
+            filename = settings.get_unique_filename(destination, self.episode)
             
-            if move_to_folder:
-                # Check if there is already a file with the same name, normalizes file name if set to do so
-                filename = settings.get_unique_filename(destination, self.episode)
-                
-                # Move the file to the actual folder
-                settings.move_file_to_folder_structure(self.episode, self.filepath, new_filename = filename)
-                
-                # Update the filepath of the clip            
-                self.clip.filepath = os.path.join(directory, filename)
-
-            if add_to_movieclips:
-                # Add the clips to the movie clips manager
-                movieclips.add(self.clip)                  
-                            
-            self.load_information.emit(self.episode)
-            self.finished.emit()
+            # Move the file to the actual folder
+            settings.move_file_to_folder_structure(self.episode, self.filepath, new_filename = filename)
+            
+            # Update the filepath of the clip            
+            self.clip.filepath = os.path.join(directory, filename)
+    
+        if add_to_movieclips:
+            # Add the clips to the movie clips manager
+            movieclips.add(self.clip)                  
+                        
+        self.load_information.emit(self.episode)
+        self.finished.emit()
 
 
      
@@ -656,15 +657,10 @@ class LocalTreeWidget(QtGui.QTreeWidget):
 class LocalSearch(QtGui.QFrame):
 
     def __init__(self, parent=None):
-        QtGui.QFrame.__init__(self, parent)       
-
-        self.setFrameShape(QtGui.QFrame.StyledPanel)
+        QtGui.QFrame.__init__(self, parent)
+                
         localframelayout = QtGui.QVBoxLayout(self)
-        self.setLayout(localframelayout)
-
-        localsearchlabel = QtGui.QLabel("Serie's title: ")
-        self.localsearchbutton = QtGui.QPushButton("Search")
-        self.localsearchfield = QtGui.QLineEdit()        
+        self.setLayout(localframelayout)      
 
         self.localseriestree = LocalTreeWidget()
         self.localseriestree.setColumnCount(1)
@@ -673,12 +669,6 @@ class LocalSearch(QtGui.QFrame):
         self.localseriestree.setHeaderHidden(True)
         self.initial_build_tree()
 
-        localsearchgrid = QtGui.QGridLayout()
-        localsearchgrid.addWidget(localsearchlabel, 1 , 0)
-        localsearchgrid.addWidget(self.localsearchfield, 1, 1)     
-        localsearchgrid.addWidget(self.localsearchbutton, 1, 2)    
-
-        localframelayout.addLayout(localsearchgrid)
         localframelayout.addWidget(self.localseriestree)
         
         self.toplevel_items = []
@@ -686,8 +676,7 @@ class LocalSearch(QtGui.QFrame):
 
     def sort_tree(self):
         # This also sorts children which produces a unwanted sorting
-        pass
-        #self.localseriestree.sortItems(0, Qt.AscendingOrder)
+        self.localseriestree.sortItems(0, Qt.AscendingOrder)
 
 
     def remove_series(self, series):        
@@ -867,7 +856,7 @@ class MovieClipOverviewWidget(QtGui.QWidget):
         self.vbox = QtGui.QVBoxLayout()
         self.setLayout(self.vbox)        
         self.movieclipinfos = []   
-        open_folder_icon = icon_start = QtGui.QIcon("images/plus.png")
+        open_folder_icon = QtGui.QIcon("images/plus.png")
         self.open_folder_button = QtGui.QPushButton(open_folder_icon, "To add movie clips drag them here or click here")
         self.vbox.addWidget(self.open_folder_button)
         self.movie = None
@@ -978,26 +967,20 @@ class SeriesInformationWidget(QtGui.QWidget):
         self.show_main_widget(False)
         
         self.setAcceptDrops(True)
-
-    
-    def register_tableview(self, tableview):
-        self.tableview = tableview
     
     def save_plot(self):
-        index = self.tablemodel.index(self.movie.number - 1, 4) #TODO
         text = self.plot.content.toPlainText()
+        index = self.tablemodel.index(self.movie.number - 1, 4) #TODO        
         self.tablemodel.setData(index, QtCore.QVariant(text))
-        self.movie.plot = text
         self.plot.content.moveCursor(QtGui.QTextCursor.End)
+        
     
     def save_seen_it(self):
-        role = Qt.CheckStateRole
         index = self.tablemodel.index(self.movie.number - 1, 2) #TODO
         value = Qt.Unchecked
         if self.seenit.content.isChecked():
             value = Qt.Checked                
         self.tablemodel.setData(index, value, role = Qt.CheckStateRole)
-        self.movie.seen_it = self.seenit.content.isChecked()
 
     def main_widget_set_visibility(self, show):
         if show:
@@ -1133,7 +1116,8 @@ class GettingStartedWidget(QtGui.QWidget):
     def __init__(self, parent = None):
         QtGui.QWidget.__init__(self, parent)
         vbox = QtGui.QVBoxLayout()
-        vbox.addWidget(QtGui.QLabel("Getting started"))
+        vbox.addWidget(QtGui.QLabel("Getting started!"))
+        vbox.addStretch(20)
         self.setLayout(vbox)
 
 
@@ -1286,7 +1270,6 @@ class MainWindow(QtGui.QMainWindow):
         # Initialize online doc
         series_info_dock = SeriesInformationDock()
         self.seriesinfo =  series_info_dock.seriesinfo
-        self.seriesinfo.register_tableview(self.tableview)
         
         # Manage the docks
         self.addDockWidget(Qt.LeftDockWidgetArea, local_search_dock)                            
@@ -1404,14 +1387,15 @@ class MainWindow(QtGui.QMainWindow):
     def start_assign_dialog(self, movie):
         filepath = QtGui.QFileDialog.getOpenFileName(self)
         if filepath != "":
-            self.add_movieclip_to_episode(filepath, movie)
+            if isinstance(movie, Episode):
+                mainwindow.add_movieclip_to_episode(filepath, movie)
+            else:
+                mainwindow.find_episode_to_movieclip(filepath, movie)
         
     
     def start_association_wizard(self, filepath, episodes, movieclip):
-        self.filepath = filepath
-        self.movieclip = movieclip
         association_wizard = AssociationWizard(episodes, os.path.basename(filepath))
-        association_wizard.selection_finished.connect(functools.partial(self.add_movieclip_to_episode, self.filepath, movieclip = self.movieclip), Qt.QueuedConnection)
+        association_wizard.selection_finished.connect(functools.partial(self.add_movieclip_to_episode, filepath, movieclip = movieclip), Qt.QueuedConnection)
         association_wizard.show()
         association_wizard.exec_()
 
@@ -1573,10 +1557,10 @@ class AssociationWizard(QtGui.QWizard):
     selection_finished = QtCore.pyqtSignal("PyQt_PyObject")
     
     def __init__(self, episodes, filename, parent = None):
-       QtGui.QWizard.__init__(self, parent)
-       self.episode_chooser = EpisodeChooser(episodes, filename)
-       self.addPage(self.episode_chooser)
-       self.accepted.connect(self.wizard_complete)
+        QtGui.QWizard.__init__(self, parent)
+        self.episode_chooser = EpisodeChooser(episodes, filename)
+        self.addPage(self.episode_chooser)
+        self.accepted.connect(self.wizard_complete)
 
     def wizard_complete(self):
         self.selection_finished.emit(self.episode_chooser.get_selected_episode())
@@ -1719,7 +1703,7 @@ class Settings(object):
         
         if settings == None:
             self.settings = {"copy_associated_movieclips" : True, 
-                             "deployment_folder" : os.path.join(self.get_user_dir(),".diribeo"),
+                             "deployment_folder" : os.path.join(self.get_user_dir(),"Series"),
                              "automatic_thumbnail_creation" : False,
                              "show_all_movieclips" : True,
                              "normalize_names" : True,
@@ -1737,7 +1721,7 @@ class Settings(object):
             pass
 
     def get_thumbnail_folder(self):        
-        thumbnail_folder = os.path.join(self.settings["deployment_folder"], self.settings["thumbnail_folder"])
+        thumbnail_folder = os.path.join(os.getcwd(), self.settings["thumbnail_folder"])
         if not os.path.exists(thumbnail_folder):
             os.makedirs(thumbnail_folder)
         
@@ -1745,8 +1729,8 @@ class Settings(object):
 
 
     def get_normalized_filename(self, filename, episode):
-         name, ext = os.path.splitext(filename)
-         return episode.get_normalized_name() + ext
+        name, ext = os.path.splitext(filename)
+        return episode.get_normalized_name() + ext
     
     
     def get_unique_filename(self, filepath, episode):
@@ -1754,7 +1738,7 @@ class Settings(object):
         directory, filename = os.path.split(filepath)
                 
         if self.settings["normalize_names"]:
-           filename = self.get_normalized_filename(filename, episode)
+            filename = self.get_normalized_filename(filename, episode)
            
         return self.get_collision_free_filename(os.path.join(directory, filename))
 
@@ -2001,13 +1985,13 @@ class IMDBWrapper(object):
 
 
     def search_movie(self, title):
-        from imdb import IMDb, IMDbError 
+        from imdb import IMDbError 
         try: 
             output = []
             query = self.ia.search_movie(title)
             for movie in query:
                 if movie.get('kind') == "tv series":
-                   output.append(SeriesWidgetItem(movie, movie.get('smart long imdb canonical title')))
+                    output.append(SeriesWidgetItem(movie, movie.get('smart long imdb canonical title')))
             return output
         except IMDbError:
             raise NoConnectionAvailable
@@ -2043,7 +2027,7 @@ class IMDBWrapper(object):
                 try:
                     return datetime.date(int(datematching.group(3)), self.month_to_integer(datematching.group(2)), int(datematching.group(1)))
                 except AttributeError:
-                    logging.debug("Error: Date " + imdbdate) 
+                    log.debug("Error: Date " + imdbdate) 
 
     def month_to_integer(self, monthname):
         return { "January" : 1, "February" : 2, "March": 3, "April" : 4, "May" : 5, "June" : 6,
@@ -2065,6 +2049,7 @@ class Series(object):
         self.director = director
         self.genre = genre
         self.date = date
+        self.season = {}
     
     def __getitem__(self, key):
         ''' Returns the n-th episode of the series '''
@@ -2199,8 +2184,7 @@ class MovieClipManager(object):
         try:            
             return self.dictionary[implementation][key]
         except KeyError:
-            pass
-            #logging.debug("Key Error in Movieclip manager")
+            log.debug("Key Error in Movieclip manager")
             
         return [] # Returns an empty list, to produce a empty iterator
 
@@ -2245,7 +2229,7 @@ class MovieClipManager(object):
     def add(self, movieclip):
         implementation, key = movieclip.identifier.items()[0]       
         try:
-             self.dictionary[implementation][key].append(movieclip)
+            self.dictionary[implementation][key].append(movieclip)
         except KeyError:           
             self.dictionary[implementation][key] = []
             self.dictionary[implementation][key].append(movieclip) 
@@ -2281,7 +2265,7 @@ def save_file(filename, contents):
         f.write(json.dumps(contents, sort_keys = True, indent = 4, cls = SeriesOrganizerEncoder, encoding = "utf-8"))
     f.close()     
 
-def load_file(filename, default_value):
+def load_file(filename, default_value):   
     if os.path.exists(filename):
         with open(filename, "r") as f:
             filecontents = f.read()
@@ -2300,14 +2284,12 @@ if __name__ == "__main__":
     
     imdbwrapper = IMDBWrapper()
     active_table_models = {}
-    series_list = load_series()
-    movieclips = load_movieclips()
+
     settings = load_settings()
+    series_list = load_series()
+    movieclips = load_movieclips()    
 
     mainwindow = MainWindow()
     mainwindow.show()
     
     app.exec_()
-
-
-
