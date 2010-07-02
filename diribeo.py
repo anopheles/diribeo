@@ -19,7 +19,6 @@ import glob
 import uuid
 
 
-
 from PyQt4 import QtGui
 from PyQt4 import QtCore
 from PyQt4.QtCore import Qt
@@ -586,7 +585,7 @@ class EpisodeTableModel(QtCore.QAbstractTableModel):
         return QtCore.QVariant()     
 
     
-    def setData(self, index, value, role):
+    def setData(self, index, value, role = Qt.EditRole):
         if role == Qt.CheckStateRole:
             boolean_value = False
             if value == Qt.Checked:
@@ -594,6 +593,11 @@ class EpisodeTableModel(QtCore.QAbstractTableModel):
             self.episodes[index.row()].seen_it = boolean_value 
             self.dataChanged.emit(index, index)
             return True
+        if role == Qt.EditRole:
+            if index.column() == 4:
+                self.episodes[index.row()].plot = value.toString()
+                self.dataChanged.emit(index, index)
+                return True
         return False
     
     def get_gradient_bg(self, index, saturation = 0.25):            
@@ -607,6 +611,8 @@ class EpisodeTableModel(QtCore.QAbstractTableModel):
     def flags(self, index):        
         if index.column() == 2:
             return Qt.ItemIsEnabled | Qt.ItemIsUserCheckable | Qt.ItemIsSelectable
+        if index.column() == 4:
+            return Qt.ItemIsEnabled | Qt.ItemIsEditable | Qt.ItemIsSelectable        
         return Qt.ItemIsEnabled | Qt.ItemIsSelectable
 
     def headerData(self, section, orientation, role):
@@ -860,9 +866,11 @@ class MovieClipOverviewWidget(QtGui.QWidget):
         QtGui.QWidget.__init__(self, parent)
         self.vbox = QtGui.QVBoxLayout()
         self.setLayout(self.vbox)        
-        self.movieclipinfos = []
-        self.draghere_label = QtGui.QLabel("To add movie clips drag them here")                
-        self.vbox.addWidget(self.draghere_label)
+        self.movieclipinfos = []   
+        open_folder_icon = icon_start = QtGui.QIcon("images/plus.png")
+        self.open_folder_button = QtGui.QPushButton(open_folder_icon, "To add movie clips drag them here or click here")
+        self.vbox.addWidget(self.open_folder_button)
+        self.movie = None
     
     def load_movieclips(self, movie):
         
@@ -872,7 +880,6 @@ class MovieClipOverviewWidget(QtGui.QWidget):
         movieclips =  movie.get_movieclips()
         
         if len(movieclips) > 0:
-            self.draghere_label.setVisible(False)
             if movieclips != None:
                 for movieclip in movieclips:
                     add = True
@@ -884,8 +891,7 @@ class MovieClipOverviewWidget(QtGui.QWidget):
                         info_item.update.connect(self.load_movieclips)
                         self.movieclipinfos.append(info_item)
                         self.vbox.addWidget(info_item)
-        else:
-            self.draghere_label.setVisible(True)
+
 
     def remove_old_entries(self):
         for movieclipinfo in self.movieclipinfos:
@@ -969,16 +975,28 @@ class SeriesInformationWidget(QtGui.QWidget):
         self.update_button = self.title.content.update_button
         
         self.seenit.content.clicked.connect(self.save_seen_it)
-        self.plot.content.textChanged.connect(self.save_plot)
-        
         self.show_main_widget(False)
         
         self.setAcceptDrops(True)
 
+    
+    def register_tableview(self, tableview):
+        self.tableview = tableview
+    
     def save_plot(self):
-        self.movie.plot = self.plot.content.toPlainText()
+        index = self.tablemodel.index(self.movie.number - 1, 4) #TODO
+        text = self.plot.content.toPlainText()
+        self.tablemodel.setData(index, QtCore.QVariant(text))
+        self.movie.plot = text
+        self.plot.content.moveCursor(QtGui.QTextCursor.End)
     
     def save_seen_it(self):
+        role = Qt.CheckStateRole
+        index = self.tablemodel.index(self.movie.number - 1, 2) #TODO
+        value = Qt.Unchecked
+        if self.seenit.content.isChecked():
+            value = Qt.Checked                
+        self.tablemodel.setData(index, value, role = Qt.CheckStateRole)
         self.movie.seen_it = self.seenit.content.isChecked()
 
     def main_widget_set_visibility(self, show):
@@ -1004,6 +1022,17 @@ class SeriesInformationWidget(QtGui.QWidget):
     def load_information(self, movie):
         self.movie = movie
         
+        try:
+            self.tablemodel = active_table_models[self.movie.get_series()]
+        except AttributeError:
+            self.tablemodel = None
+        
+        try:
+            self.plot.content.textChanged.disconnect()
+        except TypeError:
+            pass
+            
+        
         self.show_main_widget(True)
         
         if isinstance(self.movie, Series):
@@ -1027,7 +1056,15 @@ class SeriesInformationWidget(QtGui.QWidget):
         self.director.setText(movie.director) 
         self.airdate.setText(str(movie.date))
         self.genre.setText(movie.genre)
-        self.movieclipwidget.content.load_movieclips(movie)          
+        
+        try:
+            self.movieclipwidget.content.open_folder_button.clicked.disconnect()
+        except TypeError:
+            pass
+        self.movieclipwidget.content.open_folder_button.clicked.connect(functools.partial(mainwindow.start_assign_dialog, movie))
+        self.movieclipwidget.content.load_movieclips(movie)  
+        
+        self.plot.content.textChanged.connect(self.save_plot)        
         
     def dragEnterEvent(self, event):
         event.acceptProposedAction()
@@ -1223,10 +1260,6 @@ class MainWindow(QtGui.QMainWindow):
         self.setCentralWidget(self.episode_overview_widget)
         self.tableview = self.episode_overview_widget.tableview
         self.tableview.set_callback(self.load_episode_information_at_index)
-        
-        #delegate = CheckBoxDelegate()
-        #self.tableview.setItemDelegate(delegate)
-        
 
         # Initialize worker thread manager
         self.jobs = WorkerThreadManager()
@@ -1253,6 +1286,7 @@ class MainWindow(QtGui.QMainWindow):
         # Initialize online doc
         series_info_dock = SeriesInformationDock()
         self.seriesinfo =  series_info_dock.seriesinfo
+        self.seriesinfo.register_tableview(self.tableview)
         
         # Manage the docks
         self.addDockWidget(Qt.LeftDockWidgetArea, local_search_dock)                            
@@ -1267,6 +1301,7 @@ class MainWindow(QtGui.QMainWindow):
         self.setWindowTitle("Diribeo")
         self.resize_to_percentage(66)
         self.center()
+
 
     def closeEvent(self, event):
         save_movieclips()
@@ -1365,6 +1400,12 @@ class MainWindow(QtGui.QMainWindow):
         wizard.selection_finished.connect(self.load_items_into_table)             
         wizard.show()
         wizard.exec_()
+    
+    def start_assign_dialog(self, movie):
+        filepath = QtGui.QFileDialog.getOpenFileName(self)
+        if filepath != "":
+            self.add_movieclip_to_episode(filepath, movie)
+        
     
     def start_association_wizard(self, filepath, episodes, movieclip):
         self.filepath = filepath
@@ -1470,18 +1511,17 @@ class MainWindow(QtGui.QMainWindow):
     
             self.tableview.scrollTo(goto_index, QtGui.QAbstractItemView.PositionAtTop)
 
-    def load_episode_information_at_index(self, selected, deselected):        
+    def load_episode_information_at_index(self, selected, deselected):
+        index = QtCore.QModelIndex()       
         try:
             index = selected.indexes()[0]
         except AttributeError:
-            index = selected            
+            index = selected
         except IndexError, TypeError:  
             pass
         finally:
             self.seriesinfo.load_information(self.existing_series[index.row()])           
             self.tableview.selectRow(index.row())
-        
- 
 
 
     def load_all_series_into_their_table(self):
@@ -1625,7 +1665,7 @@ def SeriesOrganizerDecoder(dct):
         return datetime.date.fromordinal(dct["ordinal"])
 
     if '__episode__' in dct:
-        return Episode(title = dct["title"], descriptor = dct["descriptor"], series = dct["series"], plot = dct['plot'], date = dct["date"], identifier = dct["identifier"], rating = dct["rating"], director = dct["director"], genre = dct["genre"], runtime = dct["runtime"], seen_it = dct["seen_it"])
+        return Episode(title = dct["title"], descriptor = dct["descriptor"], series = dct["series"], plot = dct['plot'], date = dct["date"], identifier = dct["identifier"], rating = dct["rating"], director = dct["director"], genre = dct["genre"], runtime = dct["runtime"], seen_it = dct["seen_it"], number = dct["number"])
 
     if '__series__' in dct:
         return Series(dct["title"], identifier = dct["identifier"], episodes = dct["episodes"], rating = dct["rating"], director = dct["director"], genre = dct["genre"], date = dct["date"])
@@ -1649,7 +1689,7 @@ class SeriesOrganizerEncoder(json.JSONEncoder):
     def default(self, obj):
         
         if isinstance(obj, Episode):
-            return { "__episode__" : True, "title" : obj.title, "descriptor" : obj.descriptor, "series" : obj.series, "plot" : obj.plot, "date" : obj.date, "identifier" : obj.identifier, "rating" : obj.rating, "director" : obj.director, "runtime" : obj.runtime, "genre" : obj.genre, "seen_it" : obj.seen_it}
+            return { "__episode__" : True, "title" : obj.title, "descriptor" : obj.descriptor, "series" : obj.series, "plot" : obj.plot, "date" : obj.date, "identifier" : obj.identifier, "rating" : obj.rating, "director" : obj.director, "runtime" : obj.runtime, "genre" : obj.genre, "seen_it" : obj.seen_it, "number" : obj.number}
 
         if isinstance(obj, datetime.date):
             return { "__date__" : True, "ordinal" : obj.toordinal()}
@@ -1869,7 +1909,7 @@ class MovieClip(object):
             self.filesize = os.path.getsize(self.filepath)
             return self.filesize
 
-
+    
     def get_folder(self):
         if os.path.isfile(self.filepath):
             return os.path.dirname(self.filepath)
@@ -1936,11 +1976,13 @@ class IMDBWrapper(object):
         self.ia.update(imdb_series, 'episodes rating')        
         ratings = imdb_series.get('episodes rating')        
 
+        counter = 1
         for seasonnumber in seasons.iterkeys():
             if type(seasonnumber) == type(1):
                 for imdb_episode_number in seasons[seasonnumber]:  
                     imdb_episode = seasons[seasonnumber][imdb_episode_number]                       
-                    episode = Episode(title = imdb_episode.get('title'), descriptor = [imdb_episode.get('season'), imdb_episode.get('episode')], series = (imdb_series.get('title'), imdb_series.movieID), date = imdb_episode.get('original air date'), plot = imdb_episode.get('plot'), identifier = {"imdb" : imdb_episode.movieID}, rating = {"imdb" : self.get_rating(ratings, imdb_episode)})
+                    episode = Episode(title = imdb_episode.get('title'), descriptor = [imdb_episode.get('season'), imdb_episode.get('episode')], series = (imdb_series.get('title'), {"imdb" : imdb_series.movieID}), date = imdb_episode.get('original air date'), plot = imdb_episode.get('plot'), identifier = {"imdb" : imdb_episode.movieID}, rating = {"imdb" : self.get_rating(ratings, imdb_episode)}, number = counter)
+                    counter += 1
                     yield episode, numberofepisodes
 
         return
@@ -2023,7 +2065,7 @@ class Series(object):
         self.director = director
         self.genre = genre
         self.date = date
-
+    
     def __getitem__(self, key):
         ''' Returns the n-th episode of the series '''
         return self.episodes[key]
@@ -2071,7 +2113,7 @@ class Series(object):
         return self.identifier.items()[0]
 
 class Episode(object):
-    def __init__(self, title = "", descriptor = None, series = "", date = None, plot = "", identifier = None, rating = None, director = "", runtime = "", genre = "", seen_it = False):
+    def __init__(self, title = "", descriptor = None, series = "", date = None, plot = "", identifier = None, rating = None, director = "", runtime = "", genre = "", seen_it = False, number = 0):
         
         self.title = title
         self.descriptor = descriptor
@@ -2084,6 +2126,7 @@ class Episode(object):
         self.runtime = runtime
         self.genre = genre
         self.seen_it = seen_it
+        self.number = number
 
 
     def __repr__(self):
@@ -2098,7 +2141,13 @@ class Episode(object):
 
     def __eq__(self, other):
         return self.title == other.title and self.descriptor == other.descriptor
-
+    
+    
+    def get_series(self):
+        for series in series_list:
+            if series.identifier == self.series[1]:
+                return series
+    
     def get_descriptor(self):
         return str(self.descriptor[0]) + "x" + str('%0.2d' % self.descriptor[1])
 
@@ -2107,7 +2156,6 @@ class Episode(object):
 
     
     def get_thumbnails(self):
-        """ This is a conveniece function """
         thumbnail_list = []
         for movieclip in self.get_movieclips():
             thumbnail_list += movieclip.thumbnails
@@ -2151,7 +2199,8 @@ class MovieClipManager(object):
         try:            
             return self.dictionary[implementation][key]
         except KeyError:
-            logging.debug("Key Error in Movieclip manager")
+            pass
+            #logging.debug("Key Error in Movieclip manager")
             
         return [] # Returns an empty list, to produce a empty iterator
 
