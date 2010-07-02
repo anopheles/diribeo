@@ -1015,7 +1015,6 @@ class SeriesInformationWidget(QtGui.QWidget):
         except TypeError:
             pass
             
-        
         self.show_main_widget(True)
         
         if isinstance(self.movie, Series):
