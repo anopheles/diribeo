@@ -1,7 +1,7 @@
 import unittest
 
 
-from diribeo import MovieClip
+from diribeomodel import MovieClip
 
 
 class MovieClipSetFunctionality(unittest.TestCase):
