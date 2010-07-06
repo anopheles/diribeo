@@ -14,7 +14,7 @@ import functools
 import diribeomessageboxes
 import diribeomodel
 
-from diribeomodel import Series, Episode, save_configs
+from diribeomodel import Series, Episode
 from diribeoworkers import SeriesSearchWorker, ModelFiller, MovieClipAssigner, ThumbnailGenerator, MovieClipAssociator, MovieClipGuesser
 from PyQt4 import QtGui
 from PyQt4 import QtCore
@@ -390,13 +390,11 @@ class MovieClipInformationWidget(QtGui.QFrame):
 
     def open_folder(self):
         folder = self.movieclip.get_folder()
-        # Not really pythonic
         if folder is not None: 
             try:
                 os.startfile(folder) # Linux does not have startfile
-            except AttributeError:
-                # Not very portable            
-                subprocess.Popen(['nautilus', self.movieclip.get_folder()])
+            except AttributeError:         
+                subprocess.Popen(['xdg-open', self.movieclip.get_folder()])
         
     def load_information(self, movieclip):
         self.title.setText(movieclip.get_filename())
@@ -415,8 +413,7 @@ class MovieClipInformationWidget(QtGui.QFrame):
             try:
                 os.startfile(filepath) # Linux does not have startfile
             except AttributeError:
-                # Not very portable  
-                subprocess.Popen(['vlc', filepath])
+                subprocess.Popen(['xdg-open', filepath])
 
 class MovieClipOverviewWidget(QtGui.QWidget):
     def __init__(self, parent = None, movieclips = None):
@@ -850,7 +847,7 @@ class MainWindow(QtGui.QMainWindow):
 
 
     def closeEvent(self, event):
-        save_configs()
+        diribeomodel.save_configs()
     
     def start_series_adder_wizard(self):
         wizard = SeriesAdderWizard(self.jobs)
