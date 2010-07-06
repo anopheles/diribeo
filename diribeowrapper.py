@@ -3,11 +3,13 @@
 import datetime
 import locale
 
+import tvrage.api
+
 from diribeomodel import Episode, NoConnectionAvailable, series_list
 
 class LibraryWrapper(object):
     def __init__(self):
-        self.implementations = [IMDBWrapper(), IMDBWrapper()]
+        self.implementations = [IMDBWrapper(), TVRageWrapper()]
 
     def get_episodes(self, identifier, implementation_identifier):
         for implementation in self.implementations:
@@ -31,6 +33,28 @@ class LibraryWrapper(object):
             if result is not None:
                 return result
 
+
+class TVRageWrapper(object):
+    def __init__(self):
+        self.identifier = "tvrage"
+        
+    def get_episodes(self, tvrage_series):
+        counter = 1
+        for season in tvrage_series.episodes:
+            for episode in tvrage_series.episodes[season]:
+                counter += 1
+                return tvrage_series.episodes[season][episode]
+    
+    def get_more_information(self, series, movie):
+        pass
+
+    def search_movie(self, title):
+        show = tvrage.api.Show(str(title))
+        return [(show, show.name, self.identifier)]
+
+    def get_series_from_movie(self, movie):
+        pass
+        
 class IMDBWrapper(object):
     def __init__(self):
         #Import the imdb package.
