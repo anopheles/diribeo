@@ -45,7 +45,7 @@ def filesystem_error_warning(movie, filepath):
     messagebox.setDetailedText(filepath)
     messagebox.exec_()
 
-def no_internet_connection_warning(self):
+def no_internet_connection_warning():
     #TODO
     messagebox = QtGui.QMessageBox(QtGui.QMessageBox.Information, "NO INTERNET CONNECTION", "")
     messagebox.setText("You must add a movie clip file to an episode.")

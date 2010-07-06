@@ -7,12 +7,11 @@ Created on 05.07.2010
 
 import datetime
 import json
-import re
 import shutil
 import os
+import locale
 
 from PyQt4 import QtCore
-
 
 
 class MovieClip(object):
@@ -148,7 +147,8 @@ class Settings(object):
                              "automatic_thumbnail_creation" : False,
                              "show_all_movieclips" : True,
                              "normalize_names" : True,
-                             "thumbnail_folder" : os.path.join(self.get_user_dir(),"Series",".thumbnails")}
+                             "thumbnail_folder" : os.path.join(self.get_user_dir(),"Series",".thumbnails"),
+                             "number_of_thumbnails" : 16}
         else:
             self.settings = settings      
 
@@ -242,121 +242,6 @@ class Settings(object):
         else:
             shutil.move(filepath, destination)
 
-
-
-class IMDBWrapper(object):
-    def __init__(self):
-        #Import the imdb package.
-        import imdb
-
-        #Create the object that will be used to access the IMDb's database.
-        self.ia  = imdb.IMDb(loggginLevel = "critical", proxy = "") # by default access the web.        
-
-
-    def imdb_tv_series_to_series(self, imdb_identifier):        
-
-        #Search for a movie (get a list of Movie objects).
-        imdb_series = self.ia.get_movie(str(imdb_identifier))
-
-        #Make sure that imdb movie is an actual tv series
-        assert imdb_series.get('kind') == "tv series"
-
-        self.get_episodes(imdb_series)
-
-
-    def get_episodes(self, imdb_series):
-        #Get more information about the series
-        self.ia.update(imdb_series)
-
-        #Get information about the episodes
-        self.ia.update(imdb_series, 'episodes')
-
-        seasons = imdb_series.get('episodes')
-
-        numberofepisodes = imdb_series.get('number of episodes') - 1
-
-        # Import helpers form imdb to sort episodes
-        from imdb import helpers
-
-        #Sort Episodes
-        helpers.sortedEpisodes(seasons)
-
-        #Ratings
-        self.ia.update(imdb_series, 'episodes rating')        
-        ratings = imdb_series.get('episodes rating')        
-
-        counter = 1
-        for seasonnumber in seasons.iterkeys():
-            if type(seasonnumber) == type(1):
-                for imdb_episode_number in seasons[seasonnumber]:  
-                    imdb_episode = seasons[seasonnumber][imdb_episode_number]                       
-                    episode = Episode(title = imdb_episode.get('title'), descriptor = [imdb_episode.get('season'), imdb_episode.get('episode')], series = (imdb_series.get('title'), {"imdb" : imdb_series.movieID}), date = imdb_episode.get('original air date'), plot = imdb_episode.get('plot'), identifier = {"imdb" : imdb_episode.movieID}, rating = {"imdb" : self.get_rating(ratings, imdb_episode)}, number = counter)
-                    counter += 1
-                    yield episode, numberofepisodes
-
-        return
-
-
-    def get_more_information(self, series, movie):
-        self.ia.update(movie)
-        series.identifier = {"imdb" : movie.movieID}
-        series.rating = {"imdb" : [movie.get("rating"), movie.get("votes")]}
-        try:
-            series.director = "\n".join(person['name'] for person in movie.get("director"))
-        except TypeError:
-            pass
-        series.genre = "\n".join(movie.get("genre"))
-        series.date = movie.get('year')
-
-
-    def search_movie(self, title):
-        from imdb import IMDbError 
-        try: 
-            output = []
-            query = self.ia.search_movie(title)
-            for movie in query:
-                if movie.get('kind') == "tv series":
-                    output.append((movie, movie.get('smart long imdb canonical title')))
-            return output
-        except IMDbError:
-            raise NoConnectionAvailable
-
-    def get_series_from_movie(self, movie):
-        """ Checks if the IMDB movie is already present in the series list.
-        If it is presents it returns the series object. None otherwise.          
-        """
-        for series in series_list:
-            try:
-                if series.identifier["imdb"] == movie.movieID:
-                    return series
-            except KeyError, TypeError:
-                pass
-
-    def get_rating(self, ratings, imdb_episode):
-        try:
-            for single_rating in ratings:
-                if single_rating["episode"] == imdb_episode:
-                    return [single_rating["rating"], single_rating["votes"]]                
-        except TypeError:
-            pass               
-
-
-    def release_dates_to_datetimedate(self, imdbdatelist):
-        """ This function converts the release dates used by imdbpy into a datetime object.
-        Right now it only converts the USA release date into its proper format and returns it """
-        
-        for imdbdate in imdbdatelist:
-            matching = re.match(r"(\w+)::(.*)", imdbdate)
-            if matching.group(1) == "USA":
-                datematching = re.match(r"(\d+) (\w+) (\d+)", matching.group(2))
-                try:
-                    return datetime.date(int(datematching.group(3)), self.month_to_integer(datematching.group(2)), int(datematching.group(1)))
-                except AttributeError:
-                    pass
-
-    def month_to_integer(self, monthname):
-        return { "January" : 1, "February" : 2, "March": 3, "April" : 4, "May" : 5, "June" : 6,
-                 "July" : 7, "August" : 8, "September" : 9, "October" : 10, "November" : 11, "December" : 12}[monthname]
 
 class Series(object):
     def __init__(self, title, identifier = None, episodes = None, rating = None, director = "", genre = "", date = ""):
@@ -612,4 +497,3 @@ def load_file(filename, default_value):
 settings = load_settings()
 series_list = load_series()
 movieclips = load_movieclips()
-imdbwrapper = IMDBWrapper()

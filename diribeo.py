@@ -13,6 +13,7 @@ import subprocess
 import functools
 import diribeomessageboxes
 import diribeomodel
+import diribeowrapper
 
 from diribeomodel import Series, Episode
 from diribeoworkers import SeriesSearchWorker, ModelFiller, MovieClipAssigner, ThumbnailGenerator, MovieClipAssociator, MovieClipGuesser
@@ -24,7 +25,6 @@ from PyQt4.QtCore import Qt
 # Initialize the logger
 log_filename = "logger_output.out"
 log.basicConfig(filename=log_filename,  format='%(asctime)s %(levelname)s %(message)s', level=log.DEBUG, filemode='w')
-
 
 
 class WorkerThreadManager(object):
@@ -392,7 +392,7 @@ class MovieClipInformationWidget(QtGui.QFrame):
         folder = self.movieclip.get_folder()
         if folder is not None: 
             try:
-                os.startfile(folder) # Linux does not have startfile
+                os.startfile(folder) # Unix systems do not have startfile
             except AttributeError:         
                 subprocess.Popen(['xdg-open', self.movieclip.get_folder()])
         
@@ -411,7 +411,7 @@ class MovieClipInformationWidget(QtGui.QFrame):
         filepath = os.path.normpath(self.movieclip.filepath)
         if os.path.isfile(filepath):            
             try:
-                os.startfile(filepath) # Linux does not have startfile
+                os.startfile(filepath) # Unix systems do not have startfile
             except AttributeError:
                 subprocess.Popen(['xdg-open', filepath])
 
@@ -766,8 +766,8 @@ class OnlineSearch(QtGui.QWizardPage):
     def add_items(self, items):
         self.onlineserieslist.clear()
         for item in items:
-            movie, title = item
-            self.onlineserieslist.addItem(SeriesWidgetItem(movie, title)) 
+            movie, title, implementation_identifier = item
+            self.onlineserieslist.addItem(SeriesWidgetItem(movie, title, implementation_identifier)) 
 
 class WaitingWidget(QtGui.QWidget):
     def __init__(self, parent=None):
@@ -1002,8 +1002,9 @@ class MainWindow(QtGui.QMainWindow):
         
         for item in items:           
             movie = item.movie
+            implementation_identifier = item.implementation_identifier
 
-            self.existing_series = existing_series = imdbwrapper.get_series_from_movie(movie)            
+            self.existing_series = existing_series = library.get_series_from_movie(movie)            
             
             if existing_series is None: 
                 current_series = Series(item.title)
@@ -1012,7 +1013,7 @@ class MainWindow(QtGui.QMainWindow):
                 self.tableview.setModel(model)
                 
                 self.existing_series = current_series                
-                job = ModelFiller(model, movie = movie)
+                job = ModelFiller(model, movie, implementation_identifier)
                 job.update_tree.connect(self.local_search.update_tree, type = QtCore.Qt.QueuedConnection)
                 job.update_seriesinformation.connect(self.seriesinfo.load_information, type = QtCore.Qt.QueuedConnection)
                 job.update_tableview.connect(self.tableview.setModel)
@@ -1109,10 +1110,11 @@ class AnimatedLabel(QtGui.QLabel):
 
 
 class SeriesWidgetItem(QtGui.QListWidgetItem):
-    def __init__(self, movie, title, parent = None):
+    def __init__(self, movie, title, implementation_identifier, parent = None):
         QtGui.QListWidgetItem.__init__(self, parent)        
         self.movie = movie
         self.title = title
+        self.implementation_identifier = implementation_identifier
         self.setText(title)
 
 
@@ -1167,7 +1169,7 @@ if __name__ == "__main__":
 
     app = QtGui.QApplication(sys.argv)
     
-    imdbwrapper = diribeomodel.imdbwrapper
+    library = diribeowrapper.library
     active_table_models = {}
 
     settings = diribeomodel.settings

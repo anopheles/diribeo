@@ -15,7 +15,8 @@ import subprocess
 import re
 import diribeomessageboxes
 
-from diribeomodel import settings, movieclips, series_list, MovieClip, NoConnectionAvailable, imdbwrapper
+from diribeomodel import settings, movieclips, series_list, MovieClip, NoConnectionAvailable
+from diribeowrapper import library
 from operator import itemgetter
 from PyQt4 import QtCore
 
@@ -352,7 +353,7 @@ class ThumbnailGenerator(WorkerThread):
         self.episode = episode
         self.image_list = []    
         self.description = "Generating thumbnails"       
-        self.number_of_thumbnails = 18    
+        self.number_of_thumbnails = settings.get("number_of_thumbnails")  
 
 
     def get_duration_from_ffprobe_output(self, text):
@@ -419,7 +420,7 @@ class SeriesSearchWorker(WorkerThread):
         self.waiting.emit()
         
         try:
-            result = imdbwrapper.search_movie(self.searchfield.text())
+            result = library.search_movie(self.searchfield.text())
             if len(result) == 0:
                 self.nothing_found.emit()
             else:                
@@ -438,12 +439,13 @@ class ModelFiller(WorkerThread):
     update_tableview = QtCore.pyqtSignal("PyQt_PyObject")
     update_seriesinformation = QtCore.pyqtSignal("PyQt_PyObject")
     
-    def __init__(self, model, movie = None):
+    def __init__(self, model, movie, implementation_identifier):
         WorkerThread.__init__(self)
         self.movie = movie
         self.model = model
         self.series = self.model.series
-        self.model.set_generator(imdbwrapper.get_episodes(movie))
+        self.implementation_identifier = implementation_identifier
+        self.model.set_generator(library.get_episodes(movie, implementation_identifier))
         self.description = "Filling a model"
 
     def run(self): 
@@ -454,7 +456,7 @@ class ModelFiller(WorkerThread):
         self.insert_into_tree.emit(self.series)  
         self.waiting.emit()     
         self.update_seriesinformation.emit(self.series)   
-        imdbwrapper.get_more_information(self.series, self.movie)
+        library.get_more_information(self.series, self.movie, self.implementation_identifier)
         self.update_seriesinformation.emit(self.series)  
             
         for episode, episodenumber in self.model.generator:            
