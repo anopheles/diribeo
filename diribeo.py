@@ -327,6 +327,8 @@ class MovieClipInformationWidget(QtGui.QFrame):
             self.control_layout.addWidget(self.open_button)
             self.control_layout.addWidget(self.thumbnail_button)
             
+            print "debug"
+            
             for index, filepath in enumerate(self.movieclip.thumbnails):
                 if os.path.exists(filepath):
                     temp_label = QtGui.QLabel()
@@ -335,6 +337,7 @@ class MovieClipInformationWidget(QtGui.QFrame):
                     pixmap = pixmap.scaledToWidth(100)
                     
                     temp_label.setPixmap(pixmap)
+                    temp_label.setToolTip("<img src=':"+ filepath +"'>")
                     self.thumbnail_gridlayout.addWidget(temp_label, index/2, index % 2)
         
         self.control_layout.addWidget(self.remove_button)
@@ -547,20 +550,22 @@ class SeriesInformationWidget(QtGui.QStackedWidget):
         index = self.tablemodel.index(self.movie.number - 1, 2) #TODO
         value = Qt.Unchecked
         if self.seenit.content.isChecked():
-            value = Qt.Checked                
+            value = Qt.Checked              
         self.tablemodel.setData(index, value, role = Qt.CheckStateRole)
-
  
     def clear_all_info(self):
         self.setCurrentWidget(self.nothing_to_see_here_widget)
 
     def load_information(self, movie):
+        print "loading information"
         self.movie = movie
         
         self.setCurrentWidget(self.main_widget)
         
-        try:
+        try:            
             self.tablemodel = active_table_models[self.movie.get_series()]
+            self.tableview.setModel(self.tablemodel)
+            #self.tableview.selectRow(self.movie.number) TODO
         except AttributeError:
             self.tablemodel = None
         
@@ -574,12 +579,14 @@ class SeriesInformationWidget(QtGui.QStackedWidget):
             self.delete_button.setVisible(True)
             self.plot.setVisible(False)
             self.rating.setVisible(False)
+            self.seenit.setVisible(False)
         else:
             self.rating.setVisible(True)
             self.rating.setText(movie.get_ratings()) 
             self.plot.setText(movie.plot)
             self.plot.setVisible(True)
             self.delete_button.setVisible(False)
+            self.seenit.setVisible(True)
             self.seenit.content.setChecked(self.movie.seen_it)
         
         # Handle the title
@@ -711,9 +718,9 @@ class LocalSearchDock(QtGui.QDockWidget):
 class SeriesAdderWizard(QtGui.QWizard):
     selection_finished = QtCore.pyqtSignal("PyQt_PyObject")
     
-    def __init__(self, parent = None):
-        QtGui.QWizard.__init__(self, parent) 
-        self.online_search = OnlineSearch()
+    def __init__(self, jobs, parent = None):
+        QtGui.QWizard.__init__(self, parent)         
+        self.online_search = OnlineSearch(jobs)
         self.addPage(self.online_search)
         self.accepted.connect(self.wizard_complete)
     
@@ -722,8 +729,10 @@ class SeriesAdderWizard(QtGui.QWizard):
        
         
 class OnlineSearch(QtGui.QWizardPage):
-    def __init__(self, parent = None):
+    def __init__(self, jobs, parent = None):
         QtGui.QWizardPage.__init__(self, parent)
+
+        self.jobs = jobs
 
         onlinelayout = QtGui.QVBoxLayout(self)
         self.setTitle("Online Search")
@@ -753,7 +762,8 @@ class OnlineSearch(QtGui.QWizardPage):
             self.search()             
                   
     def search(self):      
-        if len(self.onlinesearchfield.text()) > 0:            
+        if len(self.onlinesearchfield.text()) > 0:  
+            self.jobs.append(self.seriessearcher)          
             self.seriessearcher.start()
             
     def add_items(self, items):
@@ -829,8 +839,9 @@ class MainWindow(QtGui.QMainWindow):
         
         self.local_search.localseriestree.itemClicked.connect(self.load_into_local_table)         
         self.seriesinfo.delete_button.clicked.connect(self.delete_series)
+        self.seriesinfo.tableview = self.tableview
         
-        #self.load_all_series_into_their_table()
+        self.load_all_series_into_their_table()
         self.tableview.setModel(None)
         
         self.setWindowTitle("Diribeo")
@@ -842,13 +853,13 @@ class MainWindow(QtGui.QMainWindow):
         save_configs()
     
     def start_series_adder_wizard(self):
-        wizard = SeriesAdderWizard()
+        wizard = SeriesAdderWizard(self.jobs)
         wizard.selection_finished.connect(self.load_items_into_table)             
         wizard.show()
         wizard.exec_()
     
     def start_assign_dialog(self, movie):
-        filepath = QtGui.QFileDialog.getOpenFileName(self)
+        filepath = QtGui.QFileDialog.getOpenFileName(directory = settings.get_user_dir())
         if filepath != "":
             if isinstance(movie, Episode):
                 mainwindow.add_movieclip_to_episode(filepath, movie)
@@ -876,7 +887,7 @@ class MainWindow(QtGui.QMainWindow):
         job.start()
 
     def find_episode_to_movieclip(self, filepath, series):        
-        job = MovieClipAssigner(filepath, series) 
+        job = MovieClipAssigner(filepath, series)
         job.no_association_found.connect(functools.partial(diribeomessageboxes.no_association_found, self, self))     
         job.already_exists.connect(diribeomessageboxes.already_exists_warning, Qt.QueuedConnection)
         job.association_found.connect(diribeomessageboxes.association_found_info, Qt.QueuedConnection)

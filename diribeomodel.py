@@ -198,7 +198,7 @@ class Settings(object):
             
 
     def get_user_dir(self):
-        ''' Returns the user/Home directory of the user running this application. '''        
+        ''' Returns the user/Home directory of the user running this application. '''     
         return os.path.expanduser("~")
  
 

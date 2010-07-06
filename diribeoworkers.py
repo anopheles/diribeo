@@ -13,9 +13,7 @@ import functools
 import os
 import subprocess
 import re
-
 import diribeomessageboxes
-
 
 from diribeomodel import settings, movieclips, series_list, MovieClip, NoConnectionAvailable, imdbwrapper
 from operator import itemgetter
@@ -354,12 +352,7 @@ class ThumbnailGenerator(WorkerThread):
         self.episode = episode
         self.image_list = []    
         self.description = "Generating thumbnails"       
-        self.number_of_thumbnails = 6    
-
-    def is_temp_dir_empty(self):
-        filelist = glob.glob("*.jpeg")        
-        if len(filelist) == 0:
-            return True        
+        self.number_of_thumbnails = 18    
 
 
     def get_duration_from_ffprobe_output(self, text):
@@ -388,11 +381,12 @@ class ThumbnailGenerator(WorkerThread):
         self.prefix = os.path.join(settings.get_thumbnail_folder(), unique_identifier)
         
         for index in range(1, self.number_of_thumbnails+1):
-            destination = os.path.join(settings.get_thumbnail_folder(), unique_identifier + "-" + "%03d" % index + ".jpeg") 
-            command = 'ffmpeg -ss ' + str(index*interval) + ' -i "'+ self.filepath + '" -vframes 1 -f image2 "' + destination + '"'           
+            destination = os.path.join(settings.get_thumbnail_folder(), unique_identifier + "-" + "%03d" % index + ".png") 
+            command = 'ffmpeg -ss ' + str(index*interval) + ' -i "'+ self.filepath + '" -vframes 1 -vcodec png -f image2 "' + destination + '"'           
             args = shlex.split(str(command)) # does not support unicode input
             proc = subprocess.Popen(args, shell = True, stdout=subprocess.PIPE)
-            proc.wait()  
+            proc.wait()
+            self.progress.emit(index, self.number_of_thumbnails)  
                   
         self.collect_images()
         
@@ -405,7 +399,7 @@ class ThumbnailGenerator(WorkerThread):
         self.finished.emit()
     
     def collect_images(self):
-        filelist = glob.glob(self.prefix + "*.jpeg")
+        filelist = glob.glob(self.prefix + "*.png")
         for file in filelist:
             self.image_list.append(file)
         
@@ -419,6 +413,7 @@ class SeriesSearchWorker(WorkerThread):
         WorkerThread.__init__(self)
         self.searchfield = searchfield
         self.no_connection_available.connect(diribeomessageboxes.no_internet_connection_warning)
+        self.description = "Searching for Series"
 
     def run(self):
         self.waiting.emit()
