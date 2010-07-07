@@ -322,6 +322,9 @@ class Episode(object):
         self.genre = genre
         self.seen_it = seen_it
         self.number = number
+        
+        if rating is None:
+            self.rating = []
 
 
     def __repr__(self):
@@ -384,7 +387,7 @@ class Episode(object):
 class MovieClipManager(object):
     def __init__(self, dictionary = None):
         if dictionary == None:
-            self.dictionary = {"imdb" : {}} #TODO  
+            self.dictionary = {"imdb" : {}, "tvrage" : {}} #TODO  
         else:
             self.dictionary = dictionary
 

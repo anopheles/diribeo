@@ -4,12 +4,13 @@ import datetime
 import locale
 
 import tvrage.api
+import tvrage.feeds
 
 from diribeomodel import Episode, NoConnectionAvailable, series_list
 
 class LibraryWrapper(object):
     def __init__(self):
-        self.implementations = [IMDBWrapper(), TVRageWrapper()]
+        self.implementations = [TVRageWrapper()]
 
     def get_episodes(self, identifier, implementation_identifier):
         for implementation in self.implementations:
@@ -39,18 +40,27 @@ class TVRageWrapper(object):
         self.identifier = "tvrage"
         
     def get_episodes(self, tvrage_series):
-        counter = 1
-        for season in tvrage_series.episodes:
-            for episode in tvrage_series.episodes[season]:
-                counter += 1
-                return tvrage_series.episodes[season][episode]
+        
+        for season_number in tvrage_series.episodes:
+            for episode_number in tvrage_series.episodes[season_number]:
+                tvrage_episode = tvrage_series.episodes[season_number][episode_number]
+                episode = Episode(tvrage_episode.title, descriptor = [season_number, episode_number], series = (tvrage_series.showname, {self.identifier: tvrage_series.showid}), identifier = {self.identifier : tvrage_series.showid}, number = tvrage_episode.number, plot = tvrage_episode.summary, date = tvrage_episode.airdate)
+                yield episode, 100
+                
     
     def get_more_information(self, series, movie):
-        pass
+        series.identifier = {self.identifier : movie.showid}
 
     def search_movie(self, title):
-        show = tvrage.api.Show(str(title))
-        return [(show, show.name, self.identifier)]
+        output = []
+        
+        search = tvrage.feeds.search(str(title))
+        for node in search:
+            sid = int(node[0].text)
+            show = tvrage.api.Show(showid = sid)
+            output.append((show, show.showname, self.identifier))        
+        
+        return output
 
     def get_series_from_movie(self, movie):
         pass
@@ -101,7 +111,8 @@ class IMDBWrapper(object):
 
 
     def convert_string_to_date(self, datestring):
-        locale.setlocale(locale.LC_ALL, 'en_US') #TODO
+        return None #TODO
+        locale.setlocale(locale.LC_ALL, 'en_US')
         try:
             return datetime.datetime.strptime(datestring, "%d %B %Y")
         except ValueError:
