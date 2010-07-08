@@ -510,14 +510,15 @@ class SeriesInformationWidget(QtGui.QStackedWidget):
         
         self.seenit = SeriesInformationCategory("Seen it?", type = QtGui.QCheckBox)
         self.title = SeriesInformationCategory("Title", type = SeriesInformationControls)
-        self.movieclipwidget = SeriesInformationCategory("Movie Clips", type = MovieClipOverviewWidget)        
+        self.movieclipwidget = SeriesInformationCategory("Movie Clips", type = MovieClipOverviewWidget)
+        self.source = SeriesInformationCategory("Source")        
         self.director = SeriesInformationCategory("Director")
         self.rating = SeriesInformationCategory("Ratings")
         self.airdate = SeriesInformationCategory("Air Date")
         self.plot = SeriesInformationCategory("Plot", type = QtGui.QTextEdit)
         self.genre = SeriesInformationCategory("Genre")
         
-        self.main_widgets = [self.title, self.seenit, self.movieclipwidget, self.director, self.rating, self.airdate, self.plot, self.genre]
+        self.main_widgets = [self.title, self.seenit, self.movieclipwidget, self.director, self.source, self.rating, self.airdate, self.plot, self.genre]
         
         for widget in self.main_widgets:
             main_widget_layout.addWidget(widget)
@@ -595,6 +596,7 @@ class SeriesInformationWidget(QtGui.QStackedWidget):
         self.director.setText(movie.director) 
         self.airdate.setText(str(movie.date))
         self.genre.setText(movie.genre)
+        self.source.setText(movie.identifier.keys()[0])
         
         try:
             self.movieclipwidget.content.open_folder_button.clicked.disconnect()
@@ -765,9 +767,8 @@ class OnlineSearch(QtGui.QWizardPage):
             
     def add_items(self, items):
         self.onlineserieslist.clear()
-        for item in items:
-            movie, title, implementation_identifier = item
-            self.onlineserieslist.addItem(SeriesWidgetItem(movie, title, implementation_identifier)) 
+        for downloaded_series in items:
+            self.onlineserieslist.addItem(SeriesWidgetItem(downloaded_series)) 
 
 class WaitingWidget(QtGui.QWidget):
     def __init__(self, parent=None):
@@ -993,27 +994,28 @@ class MainWindow(QtGui.QMainWindow):
             self.tableview.setModel(model)
             
             
-    def load_items_into_table(self, items):
+    def load_items_into_table(self, series_items):
         ''' Loads the selected episodes from the online serieslist into its designated model.
             If the series already exists the already existing series is loaded into the table view.
         '''
         
-        assert len(items) <= 1 # Make sure only one item is passed to this function since more than one item can cause concurrency problems     
+        assert len(series_items) <= 1 # Make sure only one item is passed to this function since more than one item can cause concurrency problems     
         
-        for item in items:           
-            movie = item.movie
-            implementation_identifier = item.implementation_identifier
+        for series_item in series_items:
+            downloaded_series = series_item.downloaded_series           
+            movie = downloaded_series.internal_representation
+            identifier = downloaded_series.identifier
 
-            self.existing_series = existing_series = library.get_series_from_movie(movie)            
+            self.existing_series = existing_series = library.get_series_from_identifier(identifier)            
             
             if existing_series is None: 
-                current_series = Series(item.title)
+                current_series = Series(downloaded_series.title, identifier = identifier)
                 series_list.append(current_series)
                 active_table_models[current_series] = model = EpisodeTableModel(current_series)
                 self.tableview.setModel(model)
                 
                 self.existing_series = current_series                
-                job = ModelFiller(model, movie, implementation_identifier)
+                job = ModelFiller(model, movie)
                 job.update_tree.connect(self.local_search.update_tree, type = QtCore.Qt.QueuedConnection)
                 job.update_seriesinformation.connect(self.seriesinfo.load_information, type = QtCore.Qt.QueuedConnection)
                 job.update_tableview.connect(self.tableview.setModel)
@@ -1110,12 +1112,11 @@ class AnimatedLabel(QtGui.QLabel):
 
 
 class SeriesWidgetItem(QtGui.QListWidgetItem):
-    def __init__(self, movie, title, implementation_identifier, parent = None):
-        QtGui.QListWidgetItem.__init__(self, parent)        
-        self.movie = movie
-        self.title = title
-        self.implementation_identifier = implementation_identifier
-        self.setText(title)
+    def __init__(self, downloaded_series, parent = None):
+        QtGui.QListWidgetItem.__init__(self, parent)
+        self.downloaded_series = downloaded_series
+        self.setText(self.downloaded_series.title)
+        self.setToolTip(self.downloaded_series.identifier.keys()[0])
 
 
             

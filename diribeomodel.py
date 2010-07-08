@@ -9,7 +9,6 @@ import datetime
 import json
 import shutil
 import os
-import locale
 
 from PyQt4 import QtCore
 
@@ -83,6 +82,14 @@ class MovieClip(object):
 class NoConnectionAvailable(Exception):
     def __init__(self):
         pass
+
+
+class DownloadedSeries(object):
+    def __init__(self, title, internal_representation, identifier):
+        self.title = title
+        self.internal_representation = internal_representation
+        self.identifier = identifier
+        
 
 def SeriesOrganizerDecoder(dct):
     if '__date__' in dct:

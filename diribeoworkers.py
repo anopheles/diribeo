@@ -439,13 +439,12 @@ class ModelFiller(WorkerThread):
     update_tableview = QtCore.pyqtSignal("PyQt_PyObject")
     update_seriesinformation = QtCore.pyqtSignal("PyQt_PyObject")
     
-    def __init__(self, model, movie, implementation_identifier):
+    def __init__(self, model, movie):
         WorkerThread.__init__(self)
         self.movie = movie
         self.model = model
         self.series = self.model.series
-        self.implementation_identifier = implementation_identifier
-        self.model.set_generator(library.get_episodes(movie, implementation_identifier))
+        self.model.set_generator(library.get_episodes(movie, self.series.identifier.keys()[0]))
         self.description = "Filling a model"
 
     def run(self): 
@@ -456,7 +455,7 @@ class ModelFiller(WorkerThread):
         self.insert_into_tree.emit(self.series)  
         self.waiting.emit()     
         self.update_seriesinformation.emit(self.series)   
-        library.get_more_information(self.series, self.movie, self.implementation_identifier)
+        library.get_more_information(self.series, self.movie, self.series.identifier.keys()[0])
         self.update_seriesinformation.emit(self.series)  
             
         for episode, episodenumber in self.model.generator:            

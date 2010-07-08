@@ -4,13 +4,12 @@ import datetime
 import locale
 
 import tvrage.api
-import tvrage.feeds
 
-from diribeomodel import Episode, NoConnectionAvailable, series_list
+from diribeomodel import Episode, NoConnectionAvailable, series_list, DownloadedSeries
 
 class LibraryWrapper(object):
     def __init__(self):
-        self.implementations = [TVRageWrapper()]
+        self.implementations = [TVRageWrapper(), IMDBWrapper()]
 
     def get_episodes(self, identifier, implementation_identifier):
         for implementation in self.implementations:
@@ -28,45 +27,67 @@ class LibraryWrapper(object):
             output += implementation.search_movie(title)
         return output
 
-    def get_series_from_movie(self, movie):
-        for implementation in self.implementations:
-            result = implementation.get_series_from_movie(movie)
-            if result is not None:
-                return result
+    def get_series_from_identifier(self, identifier):
+        for series in series_list:
+            try:
+                if series.identifier == identifier:
+                    return series
+            except KeyError, TypeError:
+                pass
 
 
-class TVRageWrapper(object):
+class SourceWrapper(object):
     def __init__(self):
+        pass
+    
+    def get_episodes(self, implementation):
+        raise NotImplementedError
+    
+    def get_more_information(self, series, movie):
+        raise NotImplementedError
+    
+    def search_movie(self, title):
+        raise NotImplementedError
+    
+    
+
+class TVRageWrapper(SourceWrapper):
+    def __init__(self):
+        SourceWrapper.__init__(self)
         self.identifier = "tvrage"
         
     def get_episodes(self, tvrage_series):
+        episode_count = self.__get_episode_count(tvrage_series.episodes)
         
         for season_number in tvrage_series.episodes:
             for episode_number in tvrage_series.episodes[season_number]:
                 tvrage_episode = tvrage_series.episodes[season_number][episode_number]
                 episode = Episode(tvrage_episode.title, descriptor = [season_number, episode_number], series = (tvrage_series.showname, {self.identifier: tvrage_series.showid}), identifier = {self.identifier : tvrage_series.showid}, number = tvrage_episode.number, plot = tvrage_episode.summary, date = tvrage_episode.airdate)
-                yield episode, 100
+                yield episode, episode_count
                 
     
+    def __get_episode_count(self, episodes):
+        count = 0
+        for season_number in episodes:
+            count += len(episodes[season_number]) 
+        return count
+        
     def get_more_information(self, series, movie):
-        series.identifier = {self.identifier : movie.showid}
+        series.genre = "\n".join(movie.genres)
 
     def search_movie(self, title):
         output = []
         
-        search = tvrage.feeds.search(str(title))
-        for node in search:
-            sid = int(node[0].text)
-            show = tvrage.api.Show(showid = sid)
-            output.append((show, show.showname, self.identifier))        
-        
+        search = tvrage.api.search(str(title))
+        for showinfo in search:
+            output.append(DownloadedSeries(showinfo.showname, showinfo, {self.identifier : showinfo.showid}))
         return output
 
-    def get_series_from_movie(self, movie):
-        pass
+
         
-class IMDBWrapper(object):
+class IMDBWrapper(SourceWrapper):
     def __init__(self):
+        SourceWrapper.__init__(self)
         #Import the imdb package.
         import imdb
 
@@ -103,12 +124,9 @@ class IMDBWrapper(object):
                 for imdb_episode_number in seasons[seasonnumber]:  
                     imdb_episode = seasons[seasonnumber][imdb_episode_number]
                     date = self.convert_string_to_date(str(imdb_episode.get('original air date')))                   
-                    episode = Episode(title = imdb_episode.get('title'), descriptor = [imdb_episode.get('season'), imdb_episode.get('episode')], series = (imdb_series.get('title'), {"imdb" : imdb_series.movieID}), date = date, plot = imdb_episode.get('plot'), identifier = {"imdb" : imdb_episode.movieID}, rating = {"imdb" : self.get_rating(ratings, imdb_episode)}, number = counter)
+                    episode = Episode(title = imdb_episode.get('title'), descriptor = [imdb_episode.get('season'), imdb_episode.get('episode')], series = (imdb_series.get('title'), {"imdb" : imdb_series.movieID}), date = date, plot = imdb_episode.get('plot'), identifier = {"imdb" : imdb_episode.movieID}, rating = {"imdb" : self.__get_rating(ratings, imdb_episode)}, number = counter)
                     counter += 1
                     yield episode, numberofepisodes
-
-        return
-
 
     def convert_string_to_date(self, datestring):
         return None #TODO
@@ -132,7 +150,6 @@ class IMDBWrapper(object):
         series.genre = "\n".join(movie.get("genre"))
         series.date = movie.get('year')
 
-
     def search_movie(self, title):
         from imdb import IMDbError 
         try: 
@@ -140,24 +157,12 @@ class IMDBWrapper(object):
             query = self.ia.search_movie(title)
             for movie in query:
                 if movie.get('kind') == "tv series":
-                    output.append((movie, movie.get('smart long imdb canonical title'), self.identifier))
+                    output.append(DownloadedSeries(movie.get('smart long imdb canonical title'), movie, {self.identifier : movie.movieID}))
             return output
         except IMDbError:
             raise NoConnectionAvailable
-
-    def get_series_from_movie(self, movie):
-        """ Checks if the IMDB movie is already present in the series list.
-        If it is presents it returns the series object. None otherwise.          
-        """
-        for series in series_list:
-            try:
-                if series.identifier["imdb"] == movie.movieID:
-                    return series
-            except KeyError, TypeError:
-                pass
-
-    def get_rating(self, ratings, imdb_episode):
-        """private"""
+    
+    def __get_rating(self, ratings, imdb_episode):
         try:
             for single_rating in ratings:
                 if single_rating["episode"] == imdb_episode:
