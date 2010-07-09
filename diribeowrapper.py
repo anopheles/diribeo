@@ -59,10 +59,18 @@ class TVRageWrapper(SourceWrapper):
     def get_episodes(self, tvrage_series):
         episode_count = self.__get_episode_count(tvrage_series.episodes)
         
+        counter = 1
         for season_number in tvrage_series.episodes:
             for episode_number in tvrage_series.episodes[season_number]:
                 tvrage_episode = tvrage_series.episodes[season_number][episode_number]
-                episode = Episode(tvrage_episode.title, descriptor = [season_number, episode_number], series = (tvrage_series.showname, {self.identifier: tvrage_series.showid}), identifier = {self.identifier : tvrage_series.showid}, number = tvrage_episode.number, plot = tvrage_episode.summary, date = tvrage_episode.airdate)
+                episode = Episode(title = tvrage_episode.title, 
+                                  descriptor = [season_number, episode_number], 
+                                  series = (tvrage_series.showname, {self.identifier: tvrage_series.showid}), 
+                                  identifier = {self.identifier : str(tvrage_series.showid) + "E%0.3d" % counter}, 
+                                  number = counter, 
+                                  plot = tvrage_episode.summary, 
+                                  date = tvrage_episode.airdate)
+                counter += 1
                 yield episode, episode_count
                 
     
@@ -123,12 +131,18 @@ class IMDBWrapper(SourceWrapper):
             if type(seasonnumber) == type(1):
                 for imdb_episode_number in seasons[seasonnumber]:  
                     imdb_episode = seasons[seasonnumber][imdb_episode_number]
-                    date = self.convert_string_to_date(str(imdb_episode.get('original air date')))                   
-                    episode = Episode(title = imdb_episode.get('title'), descriptor = [imdb_episode.get('season'), imdb_episode.get('episode')], series = (imdb_series.get('title'), {"imdb" : imdb_series.movieID}), date = date, plot = imdb_episode.get('plot'), identifier = {"imdb" : imdb_episode.movieID}, rating = {"imdb" : self.__get_rating(ratings, imdb_episode)}, number = counter)
+                    date = self.__convert_string_to_date(str(imdb_episode.get('original air date')))                   
+                    episode = Episode(title = imdb_episode.get('title'), 
+                                      descriptor = [imdb_episode.get('season'), imdb_episode.get('episode')], 
+                                      series = (imdb_series.get('title'), {"imdb" : imdb_series.movieID}), 
+                                      date = date, plot = imdb_episode.get('plot'), 
+                                      identifier = {"imdb" : imdb_episode.movieID}, 
+                                      rating = {"imdb" : self.__get_rating(ratings, imdb_episode)}, 
+                                      number = counter)
                     counter += 1
                     yield episode, numberofepisodes
 
-    def convert_string_to_date(self, datestring):
+    def __convert_string_to_date(self, datestring):
         return None #TODO
         locale.setlocale(locale.LC_ALL, 'en_US')
         try:
@@ -141,7 +155,6 @@ class IMDBWrapper(SourceWrapper):
 
     def get_more_information(self, series, movie):
         self.ia.update(movie)
-        series.identifier = {"imdb" : movie.movieID}
         series.rating = {"imdb" : [movie.get("rating"), movie.get("votes")]}
         try:
             series.director = "\n".join(person['name'] for person in movie.get("director"))

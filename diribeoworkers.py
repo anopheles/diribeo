@@ -358,7 +358,6 @@ class ThumbnailGenerator(WorkerThread):
 
     def get_duration_from_ffprobe_output(self, text):
         matching = re.search(r'([0-9][0-9]):([0-9][0-9]):([0-9][0-9]).([0-9][0-9])', text)  
-        print text    
         return int(matching.group(1))*60*60 + int(matching.group(2))*60 + int(matching.group(3))
 
 
@@ -370,7 +369,6 @@ class ThumbnailGenerator(WorkerThread):
         length_command_args = shlex.split(str(length_command))
         length_process = subprocess.Popen(length_command_args, stderr=subprocess.PIPE, stdout=subprocess.PIPE).communicate()       
         duration = self.get_duration_from_ffprobe_output(length_process[1])
-        print duration
         
         #ffmpeg -i foo.avi -r 1 -s WxH -f image2 foo-%03d.jpeg
         #http://www.ffmpeg.org/ffmpeg-doc.html
@@ -444,7 +442,7 @@ class ModelFiller(WorkerThread):
         self.movie = movie
         self.model = model
         self.series = self.model.series
-        self.model.set_generator(library.get_episodes(movie, self.series.identifier.keys()[0]))
+        self.model.generator = library.get_episodes(movie, self.series.identifier.keys()[0])
         self.description = "Filling a model"
 
     def run(self): 

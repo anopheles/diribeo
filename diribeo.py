@@ -14,9 +14,12 @@ import functools
 import diribeomessageboxes
 import diribeomodel
 import diribeowrapper
+import diribeoutils
 
 from diribeomodel import Series, Episode
 from diribeoworkers import SeriesSearchWorker, ModelFiller, MovieClipAssigner, ThumbnailGenerator, MovieClipAssociator, MovieClipGuesser
+
+
 from PyQt4 import QtGui
 from PyQt4 import QtCore
 from PyQt4.QtCore import Qt
@@ -46,6 +49,7 @@ class WorkerThreadManager(object):
         except KeyError:
             # Thread has already been deleted
             pass
+        
         if len(self.worker_thread_dict) == 0:
             self.statusbar.showMessage(self.ready)
             self.timer.stop()
@@ -112,9 +116,6 @@ class EpisodeTableModel(QtCore.QAbstractTableModel):
     def insert_episode(self, episode):
         self.episodes.append(episode)
 
-    def set_generator(self, generator):
-        self.generator = generator
-
     def rowCount(self, index):
         return len(self.episodes)
 
@@ -129,19 +130,19 @@ class EpisodeTableModel(QtCore.QAbstractTableModel):
          
         elif role == QtCore.Qt.DecorationRole:
             if index.column() == 0:
-                return create_default_image(episode, additional_text = str(len(episode.get_thumbnails())))
+                return diribeoutils.create_default_image(episode, additional_text = str(len(episode.get_thumbnails())))
         
         elif role == QtCore.Qt.CheckStateRole:
             if index.column() == 2:
-                if self.row_lookup(episode)[2]:
+                if episode.seen_it:
                     return Qt.Checked
                 else:
                     return Qt.Unchecked
             
         elif role == QtCore.Qt.BackgroundRole:
             if not episode.seen_it:
-                return self.get_gradient_bg(episode.descriptor[0])
-            return self.get_gradient_bg(episode.descriptor[0], saturation = 0.5)
+                return diribeoutils.get_gradient_background(episode.descriptor[0])
+            return diribeoutils.get_gradient_background(episode.descriptor[0], saturation = 0.5)
         
         elif role == QtCore.Qt.TextAlignmentRole:
             return QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter
@@ -163,14 +164,6 @@ class EpisodeTableModel(QtCore.QAbstractTableModel):
                 self.dataChanged.emit(index, index)
                 return True
         return False
-    
-    def get_gradient_bg(self, index, saturation = 0.25):            
-        gradient = QtGui.QLinearGradient(0, 0, 0, 200)
-        backgroundcolor = get_color_shade(index, 5, saturation)
-        comp_backgroundcolor =  get_complementary_color(backgroundcolor)
-        gradient.setColorAt(0.0, comp_backgroundcolor.lighter(50))
-        gradient.setColorAt(1.0, comp_backgroundcolor.lighter(150))
-        return QtGui.QBrush(gradient)
 
     def flags(self, index):        
         if index.column() == 2:
@@ -327,8 +320,6 @@ class MovieClipInformationWidget(QtGui.QFrame):
             self.control_layout.addWidget(self.open_button)
             self.control_layout.addWidget(self.thumbnail_button)
             
-            print "debug"
-            
             for index, filepath in enumerate(self.movieclip.thumbnails):
                 if os.path.exists(filepath):
                     temp_label = QtGui.QLabel()
@@ -427,7 +418,6 @@ class MovieClipOverviewWidget(QtGui.QWidget):
         self.movie = None
     
     def load_movieclips(self, movie):
-        
         self.remove_old_entries()
         assert len(self.movieclipinfos) == 0
                 
@@ -442,7 +432,6 @@ class MovieClipOverviewWidget(QtGui.QWidget):
                             add = False                    
                     if add:
                         info_item = MovieClipInformationWidget(movieclip, movie)
-                        info_item.update.connect(self.load_movieclips)
                         self.movieclipinfos.append(info_item)
                         self.vbox.addWidget(info_item)
 
@@ -528,28 +517,12 @@ class SeriesInformationWidget(QtGui.QStackedWidget):
         self.delete_button = self.title.content.delete_button
         self.update_button = self.title.content.update_button
         
-        self.seenit.content.clicked.connect(self.save_seen_it)
-        
         self.addWidget(self.main_widget)
         self.addWidget(self.nothing_to_see_here_widget)
         
         self.setCurrentWidget(self.nothing_to_see_here_widget)
         
         self.setAcceptDrops(True)
-    
-    def save_plot(self):
-        text = self.plot.content.toPlainText()
-        index = self.tablemodel.index(self.movie.number - 1, 4) #TODO        
-        self.tablemodel.setData(index, QtCore.QVariant(text))
-        self.plot.content.moveCursor(QtGui.QTextCursor.End)
-        
-    
-    def save_seen_it(self):
-        index = self.tablemodel.index(self.movie.number - 1, 2) #TODO
-        value = Qt.Unchecked
-        if self.seenit.content.isChecked():
-            value = Qt.Checked              
-        self.tablemodel.setData(index, value, role = Qt.CheckStateRole)
  
     def clear_all_info(self):
         self.setCurrentWidget(self.nothing_to_see_here_widget)
@@ -559,26 +532,19 @@ class SeriesInformationWidget(QtGui.QStackedWidget):
         self.movie = movie
         
         self.setCurrentWidget(self.main_widget)
-        
-        try:            
-            self.tablemodel = active_table_models[self.movie.get_series()]
-            self.tableview.setModel(self.tablemodel)
-            #self.tableview.selectRow(self.movie.number) TODO
-        except AttributeError:
-            self.tablemodel = None
-        
+
         try:
             self.plot.content.textChanged.disconnect()
         except TypeError:
             pass
             
-        
         if isinstance(self.movie, Series):
             self.delete_button.setVisible(True)
             self.plot.setVisible(False)
             self.rating.setVisible(False)
             self.seenit.setVisible(False)
         else:
+            #self.tableview.scrollTo(self.movie.number, QtGui.QAbstractItemView.PositionAtTop) #TODO
             self.rating.setVisible(True)
             self.rating.setText(movie.get_ratings()) 
             self.plot.setText(movie.plot)
@@ -603,9 +569,7 @@ class SeriesInformationWidget(QtGui.QStackedWidget):
         except TypeError:
             pass
         self.movieclipwidget.content.open_folder_button.clicked.connect(functools.partial(mainwindow.start_assign_dialog, movie))
-        self.movieclipwidget.content.load_movieclips(movie)  
-        
-        self.plot.content.textChanged.connect(self.save_plot)        
+        self.movieclipwidget.content.load_movieclips(movie)   
         
     def dragEnterEvent(self, event):
         event.acceptProposedAction()
@@ -634,9 +598,6 @@ class EpisodeTableWidget(QtGui.QTableView):
         self.horizontalHeader().setStretchLastSection(True)
         self.setShowGrid(False)
         self.setSelectionBehavior(QtGui.QTableView.SelectRows)
-
-    def set_callback(self, callback):
-        self.callback = callback
 
     def setModel(self, model):
         try:
@@ -805,7 +766,7 @@ class MainWindow(QtGui.QMainWindow):
         self.episode_overview_widget = EpisodeOverviewWidget()   
         self.setCentralWidget(self.episode_overview_widget)
         self.tableview = self.episode_overview_widget.tableview
-        self.tableview.set_callback(self.load_episode_information_at_index)
+        self.tableview.callback = self.load_episode_information_at_index
 
         # Initialize worker thread manager
         self.jobs = WorkerThreadManager()
@@ -843,7 +804,7 @@ class MainWindow(QtGui.QMainWindow):
         self.tableview.setModel(None)
         
         self.setWindowTitle("Diribeo")
-        self.resize_to_percentage(66)
+        self.resize_to_percentage(75)
         self.center()
 
 
@@ -968,6 +929,7 @@ class MainWindow(QtGui.QMainWindow):
             self.tableview.scrollTo(goto_index, QtGui.QAbstractItemView.PositionAtTop)
 
     def load_episode_information_at_index(self, selected, deselected):
+        print "loading episode at index", self.sender()
         index = QtCore.QModelIndex()       
         try:
             index = selected.indexes()[0]
@@ -976,8 +938,7 @@ class MainWindow(QtGui.QMainWindow):
         except IndexError, TypeError:  
             pass
         finally:
-            self.seriesinfo.load_information(self.existing_series[index.row()])           
-            self.tableview.selectRow(index.row())
+            self.seriesinfo.load_information(self.existing_series[index.row()])
 
 
     def load_all_series_into_their_table(self):
@@ -1117,55 +1078,7 @@ class SeriesWidgetItem(QtGui.QListWidgetItem):
         self.downloaded_series = downloaded_series
         self.setText(self.downloaded_series.title)
         self.setToolTip(self.downloaded_series.identifier.keys()[0])
-
-
-            
-def create_default_image(episode, additional_text = ""):
-    multiplikator = 5
-    width = 16 * multiplikator
-    heigth = 10 * multiplikator
-    spacing = 1.25
-
-    #extract text
-    text = episode.series[0] + "\n" + episode.get_descriptor() + "\n" + additional_text
-
-    #initalize pixmap object
-    pixmap = QtGui.QPixmap(width, heigth)
-    pixmap.fill(QtGui.QColor(255,255,255, 0))
-    paint = QtGui.QPainter()        
-    paint.begin(pixmap)
-    paint.setRenderHint(QtGui.QPainter.Antialiasing)        
-
-    #draw background
-    gradient = QtGui.QLinearGradient(0, 0, 0, heigth*2)
-    backgroundcolor = get_color_shade(episode.descriptor[0], 5)
-    comp_backgroundcolor =  get_complementary_color(backgroundcolor)
-    gradient.setColorAt(0.0, comp_backgroundcolor.lighter(50))
-    gradient.setColorAt(1.0, comp_backgroundcolor.lighter(150))
-    paint.setBrush(gradient)
-    paint.setPen(QtGui.QPen(QtGui.QColor("black"), 2, QtCore.Qt.SolidLine, QtCore.Qt.RoundCap, QtCore.Qt.RoundJoin))
-    paint.drawRoundedRect(QtCore.QRect(spacing, spacing, width-spacing*2, heigth-spacing*2), 20, 15)
-
-    #draw text
-    paint.setFont(QtGui.QFont('Arial', 8))
-    paint.setPen(QtGui.QColor("black"))
-    paint.drawText(QtCore.QRect(spacing, spacing, width-spacing*2, heigth-spacing*2), QtCore.Qt.AlignCenter | QtCore.Qt.TextWordWrap, text)        
-
-    #end painting
-    paint.end()
-
-    return pixmap
-
-def get_complementary_color(qtcolor):
-    h, s, v, a = qtcolor.getHsv()    
-    h = (h + 180) % 360     
-    return QtGui.QColor.fromHsv(h, s, v, a)
-
-
-def get_color_shade(index, number_of_colors, saturation = 0.25):      
-    return [QtGui.QColor.fromHsvF(colornumber/float(number_of_colors), 1, 0.9, saturation) for colornumber in range(number_of_colors)][index % number_of_colors]
-
-
+       
 if __name__ == "__main__":
 
     app = QtGui.QApplication(sys.argv)
