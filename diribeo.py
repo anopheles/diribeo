@@ -444,7 +444,7 @@ class MovieClipOverviewWidget(QtGui.QWidget):
 
 
 class SeriesInformationCategory(QtGui.QWidget):
-    def __init__(self, label_name, type = QtGui.QLabel, spacing = 25, default = "-", parent = None):
+    def __init__(self, label_name, type = QtGui.QLabel, spacing = 25, default = "-", disabled = False, parent = None):
         QtGui.QWidget.__init__(self, parent)        
         
         self.layout = QtGui.QVBoxLayout()
@@ -456,7 +456,10 @@ class SeriesInformationCategory(QtGui.QWidget):
         default_font.setBold(True)       
         self.title_label.setFont(default_font)
         
-        self.content = type()         
+        self.content = type() 
+        
+        if disabled:
+            self.content.setEnabled(False)        
         
         self.layout.addWidget(self.title_label)
         self.layout.addWidget(self.content)
@@ -497,14 +500,14 @@ class SeriesInformationWidget(QtGui.QStackedWidget):
         main_widget_layout.setSizeConstraint(QtGui.QLayout.SetFixedSize)
         self.main_widget.setLayout(main_widget_layout)
         
-        self.seenit = SeriesInformationCategory("Seen it?", type = QtGui.QCheckBox)
+        self.seenit = SeriesInformationCategory("Seen it?", type = QtGui.QCheckBox, disabled = True)
         self.title = SeriesInformationCategory("Title", type = SeriesInformationControls)
         self.movieclipwidget = SeriesInformationCategory("Movie Clips", type = MovieClipOverviewWidget)
         self.source = SeriesInformationCategory("Source")        
         self.director = SeriesInformationCategory("Director")
         self.rating = SeriesInformationCategory("Ratings")
         self.airdate = SeriesInformationCategory("Air Date")
-        self.plot = SeriesInformationCategory("Plot", type = QtGui.QTextEdit)
+        self.plot = SeriesInformationCategory("Plot", type = QtGui.QTextEdit, disabled = True)
         self.genre = SeriesInformationCategory("Genre")
         
         self.main_widgets = [self.title, self.seenit, self.movieclipwidget, self.director, self.source, self.rating, self.airdate, self.plot, self.genre]

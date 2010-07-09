@@ -38,7 +38,18 @@ class LibraryWrapper(object):
 
 class SourceWrapper(object):
     def __init__(self):
-        pass
+        self.month_lookup = { "January" : 1,
+                              "February" : 2,
+                              "March": 3, 
+                              "April" : 4, 
+                              "May" : 5,
+                              "June" : 6,
+                              "July" : 7,
+                              "August" : 8,
+                              "September" : 9,
+                              "October" : 10,
+                              "November" : 11,
+                              "December" : 12}
     
     def get_episodes(self, implementation):
         raise NotImplementedError
@@ -48,8 +59,6 @@ class SourceWrapper(object):
     
     def search_movie(self, title):
         raise NotImplementedError
-    
-    
 
 class TVRageWrapper(SourceWrapper):
     def __init__(self):
@@ -72,7 +81,6 @@ class TVRageWrapper(SourceWrapper):
                                   date = tvrage_episode.airdate)
                 counter += 1
                 yield episode, episode_count
-                
     
     def __get_episode_count(self, episodes):
         count = 0
@@ -96,20 +104,20 @@ class TVRageWrapper(SourceWrapper):
 class IMDBWrapper(SourceWrapper):
     def __init__(self):
         SourceWrapper.__init__(self)
-        #Import the imdb package.
+        # Import the imdb package.
         import imdb
 
-        #Create the object that will be used to access the IMDb's database.
+        # Create the object that will be used to access the IMDb's database.
         self.ia  = imdb.IMDb(loggginLevel = "critical", proxy = "") # by default access the web.
         
         self.identifier = "imdb"        
 
 
     def get_episodes(self, imdb_series):
-        #Get more information about the series
+        # Get more information about the series
         self.ia.update(imdb_series)
 
-        #Get informaon about the episodes
+        # Get informaon about the episodes
         self.ia.update(imdb_series, 'episodes')
 
         seasons = imdb_series.get('episodes')
@@ -119,10 +127,10 @@ class IMDBWrapper(SourceWrapper):
         # Import helpers form imdb to sort episodes
         from imdb import helpers
 
-        #Sort Episodes
+        # Sort Episodes
         helpers.sortedEpisodes(seasons)
 
-        #Ratings
+        # Ratings
         self.ia.update(imdb_series, 'episodes rating')        
         ratings = imdb_series.get('episodes rating')        
 
@@ -143,15 +151,15 @@ class IMDBWrapper(SourceWrapper):
                     yield episode, numberofepisodes
 
     def __convert_string_to_date(self, datestring):
-        return None #TODO
-        locale.setlocale(locale.LC_ALL, 'en_US')
+        splitted_datestring = datestring.split()
         try:
-            return datetime.datetime.strptime(datestring, "%d %B %Y")
-        except ValueError:
-            try:
-                return datetime.datetime.strptime(datestring, "%B %Y")
-            except ValueError:
-                pass
+            day = int(splitted_datestring[-3])
+        except IndexError:
+            day = 1
+        month = self.month_lookup[splitted_datestring[-2]]
+        year = int(splitted_datestring[-1])
+          
+        return datetime.date(year, month, day)
 
     def get_more_information(self, series, movie):
         self.ia.update(movie)
