@@ -1047,10 +1047,11 @@ class MainWindow(QtGui.QMainWindow):
 
     
     def multiple_assigner(self, filepath_dir_list, series):
-        job = MultipleAssignerThread(filepath_dir_list, series)
-        job.result.connect(self.start_multiple_association_wizard, Qt.QueuedConnection)
-        self.jobs.append(job)
-        job.start()
+        if len(filepath_dir_list) > 0:
+            job = MultipleAssignerThread(filepath_dir_list, series)
+            job.result.connect(self.start_multiple_association_wizard, Qt.QueuedConnection)
+            self.jobs.append(job)
+            job.start()
         
 
     def add_movieclip_associations_to_episodes(self, movieclip_associations):        
