@@ -156,8 +156,16 @@ class IMDBWrapper(SourceWrapper):
             day = int(splitted_datestring[-3])
         except IndexError:
             day = 1
-        month = self.month_lookup[splitted_datestring[-2]]
-        year = int(splitted_datestring[-1])
+        try:
+            month = self.month_lookup[splitted_datestring[-2]]
+        except IndexError:
+            month = 1
+        
+        try:    
+            year = int(splitted_datestring[-1])
+        except ValueError:
+            return None
+
           
         return datetime.date(year, month, day)
 

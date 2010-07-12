@@ -90,6 +90,21 @@ class DownloadedSeries(object):
         self.internal_representation = internal_representation
         self.identifier = identifier
         
+class MovieClipAssociation(object):
+    INVALID_FILE, ASSOCIATION_FOUND, ASSOCIATION_GUESSED, ALREADY_EXISTS = range(4)
+    
+    def __init__(self, filepath):
+        self.filepath = filepath
+        self.skip = False
+        self.movieclip = None
+        self.episode_scores_list = None
+        self.episode_scores_list_reference = 0
+        self.message = None
+
+
+    def get_associated_episode_score(self):
+        return self.episode_scores_list[self.episode_scores_list_reference]
+
 
 def SeriesOrganizerDecoder(dct):
     if '__date__' in dct:
@@ -155,7 +170,8 @@ class Settings(object):
                              "show_all_movieclips" : True,
                              "normalize_names" : True,
                              "thumbnail_folder" : os.path.join(self.get_user_dir(),"Series",".thumbnails"),
-                             "number_of_thumbnails" : 16}
+                             "hash_movieclips" : False,
+                             "number_of_thumbnails" : 8}
         else:
             self.settings = settings      
 

@@ -5,6 +5,7 @@ Created on 08.07.2010
 '''
 
 from PyQt4 import QtGui, QtCore
+from PyQt4.QtCore import Qt
 
 def create_default_image(episode, additional_text = ""):
     multiplikator = 6
@@ -49,6 +50,14 @@ def get_gradient_background(index, saturation = 0.25):
     comp_backgroundcolor =  get_complementary_color(backgroundcolor)
     gradient.setColorAt(0.0, comp_backgroundcolor.lighter(50))
     gradient.setColorAt(1.0, comp_backgroundcolor.lighter(150))
+    return QtGui.QBrush(gradient)
+
+
+def get_gradient(backgroundcolor, saturation = 0.25):
+    gradient = QtGui.QLinearGradient(0, 0, 0, 100)
+    gradient.setCoordinateMode(QtGui.QLinearGradient.ObjectBoundingMode)
+    gradient.setColorAt(0.0, backgroundcolor.lighter(150))
+    gradient.setColorAt(1.0, backgroundcolor.lighter(250))
     return QtGui.QBrush(gradient)
 
 def get_complementary_color(qtcolor):

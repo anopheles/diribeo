@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+import diribeoworkers
+
 __author__ = 'David Kaufman'
 __version__ = '0.0.1dev'
 __license__ = 'pending'
@@ -11,13 +13,14 @@ import logging as log
 
 import subprocess
 import functools
+import collections
 import diribeomessageboxes
 import diribeomodel
 import diribeowrapper
 import diribeoutils
 
-from diribeomodel import Series, Episode
-from diribeoworkers import SeriesSearchWorker, ModelFiller, MovieClipAssigner, ThumbnailGenerator, MovieClipAssociator, MovieClipGuesser
+from diribeomodel import Series, Episode, MovieClipAssociation
+from diribeoworkers import SeriesSearchWorker, ModelFiller, MultipleMovieClipAssociator, ThumbnailGenerator, MultipleAssignerThread
 
 
 from PyQt4 import QtGui
@@ -201,14 +204,11 @@ class LocalTreeWidget(QtGui.QTreeWidget):
         except AttributeError:
             pass #No Series Affinity
             
-        try:
-            for filepath in event.mimeData().urls():
-                filepath = os.path.abspath(unicode(filepath.toLocalFile()))            
-                mainwindow.find_episode_to_movieclip(filepath, series)
-            event.accept()
-        except IndexError:
-            pass
-        
+        filepath_dir_list = []
+        for filepath in event.mimeData().urls():
+            filepath_dir_list.append(os.path.abspath(unicode(filepath.toLocalFile())))
+        mainwindow.multiple_assigner(filepath_dir_list, series)
+        event.accept()
         
 class LocalSearch(QtGui.QFrame):
 
@@ -432,6 +432,7 @@ class MovieClipOverviewWidget(QtGui.QWidget):
                             add = False                    
                     if add:
                         info_item = MovieClipInformationWidget(movieclip, movie)
+                        info_item.update.connect(self.load_movieclips)
                         self.movieclipinfos.append(info_item)
                         self.vbox.addWidget(info_item)
 
@@ -582,7 +583,7 @@ class SeriesInformationWidget(QtGui.QStackedWidget):
         
     def dropEvent(self, event):        
         try:
-            filepath = event.mimeData().urls()[0].toLocalFile()
+            filepath = event.mimeData().urls()[0].toLocalFile()            
             if isinstance(self.movie, Episode):
                 mainwindow.add_movieclip_to_episode(filepath, self.movie)
             else:
@@ -678,6 +679,198 @@ class LocalSearchDock(QtGui.QDockWidget):
             mainwindow.start_series_adder_wizard()
 
 
+
+
+
+class MultipleAssociationWizard(QtGui.QWizard):
+    selection_finished = QtCore.pyqtSignal("PyQt_PyObject")
+    
+    def __init__(self, movieclip_associations, parent = None):
+        QtGui.QWizard.__init__(self, parent)    
+        self.movieclip_associations = movieclip_associations     
+        self.addPage(MultipleAssociationTable(movieclip_associations))
+        self.accepted.connect(self.wizard_complete)
+    
+    def wizard_complete(self):
+        mainwindow.add_movieclip_associations_to_episodes(self.movieclip_associations)
+
+
+
+
+class MultipleAssociationTableModel(QtCore.QAbstractTableModel):
+    def __init__(self, movieclip_associations, parent=None):
+        QtCore.QAbstractTableModel.__init__(self, parent)
+        self.movieclip_associations = movieclip_associations
+        
+        self.column_lookup = ["Filename", "Message", "Skip?", "Association"]
+     
+    def rowCount(self, index):
+        return len(self.movieclip_associations)
+
+    def columnCount(self, index):
+        return len(self.column_lookup)
+    
+    def data(self, index, role):
+        movieclip_association = self.movieclip_associations[index.row()]
+        
+        if role == QtCore.Qt.DisplayRole:
+            if index.column() == 0:
+                return QtCore.QString(os.path.basename(movieclip_association.filepath))
+            elif  index.column() == 1:
+                message = movieclip_association.message
+                if message == movieclip_association.ASSOCIATION_FOUND:
+                    message_text = "Association found"
+                elif message == movieclip_association.ASSOCIATION_GUESSED:
+                    message_text = "Guessed episode"
+                elif message == movieclip_association.INVALID_FILE:
+                    message_text = "Invalid file"
+                return QtCore.QString(message_text)
+            elif index.column() == 3:
+                try:
+                    return QtCore.QString(movieclip_association.episode_scores_list)
+                except KeyError:
+                    return QtCore.QVariant()
+        
+        if role == QtCore.Qt.ToolTipRole:
+            if index.column() == 3:
+                try:
+                    episode, score = movieclip_association.get_associated_episode_score()
+                    return QtCore.QVariant(score)
+                except TypeError:
+                    pass
+        
+          
+        elif role == QtCore.Qt.CheckStateRole:
+            if index.column() == 2:
+                if movieclip_association.message == movieclip_association.INVALID_FILE:
+                    return Qt.Checked
+                if movieclip_association.skip:
+                    return Qt.Checked
+                else:
+                    return Qt.Unchecked
+              
+        elif role == QtCore.Qt.BackgroundRole:
+            if movieclip_association.skip:
+                return diribeoutils.get_gradient(QtGui.QColor(Qt.red))
+            try:
+                episode, score = movieclip_association.get_associated_episode_score()  
+                if score > 12:
+                    return diribeoutils.get_gradient(QtGui.QColor(Qt.yellow))
+                if score > 25:
+                    return diribeoutils.get_gradient(QtGui.QColor(Qt.red))
+            except KeyError:
+                pass     
+            return diribeoutils.get_gradient(QtGui.QColor(Qt.green))
+                
+        return QtCore.QVariant()       
+     
+    def flags(self, index):    
+        movieclip_association = self.movieclip_associations[index.row()]
+            
+        if index.column() == 2: # Skip
+            if movieclip_association.message == movieclip_association.INVALID_FILE:
+                return  Qt.ItemIsSelectable
+            return Qt.ItemIsEnabled | Qt.ItemIsUserCheckable
+        if index.column() == 3: 
+            return Qt.ItemIsEnabled | Qt.ItemIsEditable        
+        return Qt.ItemIsEnabled  
+        
+
+    def setData(self, index, value, role = Qt.EditRole):
+        movieclip_association = self.movieclip_associations[index.row()]
+        
+        if role == Qt.CheckStateRole:
+            boolean_value = False
+            if value == Qt.Checked:
+                boolean_value = True            
+            movieclip_association.skip = boolean_value 
+            self.dataChanged.emit(self.index(index.row(), 0), self.index(index.row(), 4))
+            return True
+        
+        if role == Qt.EditRole:
+            if index.column() == 3:
+                movieclip_association.episode_list_reference = value
+                self.dataChanged.emit(self.index(index.row(), 0), self.index(index.row(), 4))
+                return True
+        return False
+                          
+    def headerData(self, section, orientation, role):
+        if role == QtCore.Qt.DisplayRole:
+            if orientation == Qt.Horizontal:
+                #the column
+                return QtCore.QString(self.column_lookup[section])     
+                     
+class MultipleAssociationTable(QtGui.QWizardPage):
+    def __init__(self, movieclip_associations, parent = None):
+        QtGui.QWizardPage.__init__(self, parent)
+        self.movieclip_associations = movieclip_associations
+        self.setTitle("Multiple Assigner")
+        self.setSubTitle("This is a ...")
+        self.tableview = QtGui.QTableView()
+        self.tableview.setShowGrid(False)
+        self.tablemodel = MultipleAssociationTableModel(movieclip_associations)
+        self.tableview.setItemDelegate(ComboBoxDelegate(movieclip_associations, self.tablemodel))
+        self.tableview.horizontalHeader().setStretchLastSection(True)
+        
+        self.tableview.setModel(self.tablemodel)
+        self.tableview.horizontalHeader().setResizeMode(QtGui.QHeaderView.ResizeToContents)
+        
+        vbox = QtGui.QVBoxLayout()
+        self.setLayout(vbox)
+        
+        vbox.addWidget(self.tableview)
+            
+
+class ComboBoxDelegate(QtGui.QStyledItemDelegate):
+    def __init__(self, movieclip_associations, model,  parent = None):
+        QtGui.QStyledItemDelegate.__init__(self, parent)
+        self.movieclip_associations = movieclip_associations
+        self.selections = collections.defaultdict(lambda: int())
+    
+    def paint(self, painter, option, index):
+        
+        movieclip_association = self.movieclip_associations[index.row()]
+        
+        if index.column() == 3:
+            try:
+                painter.fillRect(option.rect, index.model().data(index, role = QtCore.Qt.BackgroundRole))
+                if movieclip_association.message != movieclip_association.INVALID_FILE:
+                    episode, score = movieclip_association.episode_scores_list[self.selections[index.row()]]
+                    painter.drawText(option.rect, QtCore.Qt.AlignVCenter, episode.get_normalized_name())
+                
+            except KeyError:
+                pass  
+        else:
+            QtGui.QStyledItemDelegate.paint(self, painter, option, index)
+        
+    
+    def createEditor(self, parent, option, index):
+        movieclip_association = self.movieclip_associations[index.row()]
+        
+        if index.column() == 3:
+            editor = QtGui.QComboBox(parent)
+            
+            try:
+                for index, episode_score in enumerate(movieclip_association.episode_scores_list):
+                    episode, score = episode_score
+                    editor.insertItem(index, episode.get_normalized_name())
+                    editor.setItemData(index, score, role = Qt.ToolTipRole)
+                return editor
+            except KeyError:
+                pass
+
+    def setEditorData(self, comboBox, index):        
+        comboBox.setCurrentIndex(self.selections[index.row()])
+
+    def setModelData(self, comboBox, model, index):
+        value = comboBox.currentIndex()
+        self.selections[index.row()] = value 
+        comboBox.setCurrentIndex(value)
+        model.setData(index, value, QtCore.Qt.EditRole)
+
+    def updateEditorGeometry(self, editor, option, index):
+        editor.setGeometry(option.rect)           
+
 class SeriesAdderWizard(QtGui.QWizard):
     selection_finished = QtCore.pyqtSignal("PyQt_PyObject")
     
@@ -770,6 +963,7 @@ class MainWindow(QtGui.QMainWindow):
         self.setCentralWidget(self.episode_overview_widget)
         self.tableview = self.episode_overview_widget.tableview
         self.tableview.callback = self.load_episode_information_at_index
+        self.tableview.horizontalHeader().setResizeMode(QtGui.QHeaderView.ResizeToContents)
 
         # Initialize worker thread manager
         self.jobs = WorkerThreadManager()
@@ -820,13 +1014,22 @@ class MainWindow(QtGui.QMainWindow):
         wizard.show()
         wizard.exec_()
     
+    
+    def start_multiple_association_wizard(self, movieclip_associations):
+        wizard = MultipleAssociationWizard(movieclip_associations)
+        wizard.show()
+        wizard.exec_()
+    
     def start_assign_dialog(self, movie):
-        filepath = QtGui.QFileDialog.getOpenFileName(directory = settings.get_user_dir())
-        if filepath != "":
-            if isinstance(movie, Episode):
-                mainwindow.add_movieclip_to_episode(filepath, movie)
-            else:
-                mainwindow.find_episode_to_movieclip(filepath, movie)
+        
+        if isinstance(movie, Episode):
+            filepath = QtGui.QFileDialog.getOpenFileName(directory = settings.get_user_dir())
+            movieclip_association = MovieClipAssociation(str(filepath))            
+            movieclip_association.episode_scores_list = [[movie, 0]]
+            mainwindow.add_movieclip_associations_to_episodes([movieclip_association])
+        else:
+            filepath_dir_list = QtGui.QFileDialog.getOpenFileNames(directory = settings.get_user_dir())
+            mainwindow.multiple_assigner(filepath_dir_list, movie)
         
     
     def start_association_wizard(self, filepath, episodes, movieclip):
@@ -842,23 +1045,16 @@ class MainWindow(QtGui.QMainWindow):
         self.jobs.append(job)
         job.start()
 
-    def guess_episode_with_movieclip(self, movieclip, series):
-        job = MovieClipGuesser(movieclip, series)
-        job.possible_matches_found.connect(self.start_association_wizard, Qt.QueuedConnection)
+    
+    def multiple_assigner(self, filepath_dir_list, series):
+        job = MultipleAssignerThread(filepath_dir_list, series)
+        job.result.connect(self.start_multiple_association_wizard, Qt.QueuedConnection)
         self.jobs.append(job)
         job.start()
+        
 
-    def find_episode_to_movieclip(self, filepath, series):        
-        job = MovieClipAssigner(filepath, series)
-        job.no_association_found.connect(functools.partial(diribeomessageboxes.no_association_found, self, self))     
-        job.already_exists.connect(diribeomessageboxes.already_exists_warning, Qt.QueuedConnection)
-        job.association_found.connect(diribeomessageboxes.association_found_info, Qt.QueuedConnection)
-        job.filesystem_error.connect(diribeomessageboxes.filesystem_error_warning, Qt.QueuedConnection)
-        self.jobs.append(job)       
-        job.start()
-
-    def add_movieclip_to_episode(self, filepath, episode, movieclip = None):        
-        job = MovieClipAssociator(filepath, episode, movieclip = movieclip) 
+    def add_movieclip_associations_to_episodes(self, movieclip_associations):        
+        job = MultipleMovieClipAssociator(movieclip_associations) 
         job.load_information.connect(self.seriesinfo.load_information, Qt.QueuedConnection)
         job.already_exists.connect(diribeomessageboxes.already_exists_warning, Qt.QueuedConnection) 
         job.already_exists_in_another.connect(functools.partial(diribeomessageboxes.display_duplicate_warning, self), Qt.QueuedConnection)             

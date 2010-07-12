@@ -15,10 +15,11 @@ import subprocess
 import re
 import diribeomessageboxes
 
-from diribeomodel import settings, movieclips, series_list, MovieClip, NoConnectionAvailable
+from diribeomodel import settings, movieclips, series_list, MovieClip, NoConnectionAvailable, MovieClipAssociation
 from diribeowrapper import library
 from operator import itemgetter
 from PyQt4 import QtCore
+
 
 class WorkerThread(QtCore.QThread):
     
@@ -33,17 +34,6 @@ class WorkerThread(QtCore.QThread):
     def __init__(self):
         QtCore.QThread.__init__(self)
 
-
-class AssignerThread(WorkerThread):
-    no_association_found = QtCore.pyqtSignal()
-    already_exists = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject") # This signal is emitted when the movieclip is already in the dict and in the folder
-    association_found = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject")
-    filesystem_error = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject")
-    already_exists_in_another = QtCore.pyqtSignal() # Emitted when movieclip is in _another_ episode
-    load_information = QtCore.pyqtSignal("PyQt_PyObject")
-    
-    def __init__(self):
-        WorkerThread.__init__(self)
 
     def hash_file(self, file_obj,
                   hasher,
@@ -60,8 +50,8 @@ class AssignerThread(WorkerThread):
         return hasher.hexdigest()  
     
     
-    def calculate_checksum(self):
-        self.filesize = os.path.getsize(self.filepath)
+    def calculate_checksum(self, filepath):
+        self.filesize = os.path.getsize(filepath)
     
         # For debugging purposes
         def print_progress(byte_count, filesize):
@@ -69,35 +59,90 @@ class AssignerThread(WorkerThread):
                                  filesize,
                                  100.0 * byte_count / filesize),
     
-        with open(self.filepath, "rb") as iso_file:
+        with open(filepath, "rb") as iso_file:
             checksum = self.hash_file(iso_file, hashlib.sha224(), self.progress.emit)
             return checksum
 
+    def dameraulevenshtein(self, seq1, seq2, lower = False):
+            if lower:
+                seq1 = seq1.lower()
+                seq2 = seq2.lower()
+            """Calculate the Damerau-Levenshtein distance between sequences.
+        
+            This distance is the number of additions, deletions, substitutions,
+            and transpositions needed to transform the first sequence into the
+            second. Although generally used with strings, any sequences of
+            comparable objects will work.
+        
+            Transpositions are exchanges of *consecutive* characters; all other
+            operations are self-explanatory.
+        
+            This implementation is O(N*M) time and O(M) space, for N and M the
+            lengths of the two sequences.
+        
+            >>> dameraulevenshtein('ba', 'abc')
+            2
+            >>> dameraulevenshtein('fee', 'deed')
+            2
+        
+            It works with arbitrary sequences too:
+            >>> dameraulevenshtein('abcd', ['b', 'a', 'c', 'd', 'e'])
+            2
+            """
+            # codesnippet:D0DE4716-B6E6-4161-9219-2903BF8F547F
+            # Conceptually, this is based on a len(seq1) + 1 * len(seq2) + 1 matrix.
+            # However, only the current and two previous rows are needed at once,
+            # so we only store those.
+            oneago = None
+            thisrow = range(1, len(seq2) + 1) + [0]
+            for x in xrange(len(seq1)):
+                # Python lists wrap around for negative indices, so put the
+                # leftmost column at the *end* of the list. This matches with
+                # the zero-indexed strings and saves extra calculation.
+                twoago, oneago, thisrow = oneago, thisrow, [0] * len(seq2) + [x + 1]
+                for y in xrange(len(seq2)):
+                    delcost = oneago[y] + 1
+                    addcost = thisrow[y - 1] + 1
+                    subcost = oneago[y - 1] + (seq1[x] != seq2[y])
+                    thisrow[y] = min(delcost, addcost, subcost)
+                    # This block deals with transpositions
+                    if (x > 0 and y > 0 and seq1[x] == seq2[y - 1]
+                        and seq1[x-1] == seq2[y] and seq1[x] != seq2[y]):
+                        thisrow[y] = min(thisrow[y], twoago[y - 2] + 1)
+            return thisrow[len(seq2) - 1]
 
-class MovieClipGuesser(WorkerThread):
-    ''' This class searches for a match in all given episodes. It returns
-        a list of possible episodes from which the user can choose one.
-        It heavily uses the damerau�levenshtein distance
-    '''
-    possible_matches_found = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject", "PyQt_PyObject")  # This signal is emitted when possible episodes are found
+
+class AssignerThread(WorkerThread):
+    no_association_found = QtCore.pyqtSignal()
+    already_exists = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject") # This signal is emitted when the movieclip is already in the dict and in the folder
+    association_found = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject")
+    filesystem_error = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject")
+    already_exists_in_another = QtCore.pyqtSignal() # Emitted when movieclip is in _another_ episode
+    load_information = QtCore.pyqtSignal("PyQt_PyObject")
     
-    def __init__(self, movieclip, series):
+    def __init__(self):
         WorkerThread.__init__(self)
-        self.filepath = movieclip.filepath
-        self.movieclip = movieclip
-        self.series = series # Can be none
+
+
+
+class MultipleAssignerThread(WorkerThread):
+    
+    result = QtCore.pyqtSignal("PyQt_PyObject")
+    
+    
+    def __init__(self, filepath_dir_list, series):
+        WorkerThread.__init__(self)
+        self.filepath_dir_list = filepath_dir_list
+        self.series = series
+
         hint = ""
         if self.series is not None:
             hint = " Hint: " + series.title
             
-        self.description = "Guessing a movieclip" + hint
-     
-    def run(self):
-        #TODO CLEAN UP
-        self.waiting.emit()
-        
-        filename, ext = os.path.splitext(os.path.basename(self.filepath))
-        
+        self.description = "Assigning multiple clips " + hint
+    
+    def create_episode_list(self, series):
+                
         episode_list = []
         if self.series is None:        
             for series in series_list:
@@ -106,121 +151,130 @@ class MovieClipGuesser(WorkerThread):
         else:
             for episode in self.series:
                 episode_list.append(episode)
-
-        answer_dict = {}
         
-        episode_list_length = len(episode_list)
-        counter = 0
+        return episode_list
+    
+    
+    def create_filepath_list(self, filepath_dir_list):
+        filepath_list = []
         
-        for index, episode in enumerate(episode_list):
-            title = episode.get_normalized_name()
-            alternative_title = episode.get_alternative_name()
-            score = min(self.dameraulevenshtein(title, filename),self.dameraulevenshtein(alternative_title, filename))
-            answer_dict[episode] = score
-            self.progress.emit(counter, episode_list_length)
-            counter += 1
+        for single_file_or_dir in filepath_dir_list:
+            if os.path.isdir(str(single_file_or_dir)):
+                        for root, dirs, files in os.walk(str(single_file_or_dir)):
+                            for single_file in files:
+                                    filepath_list.append(os.path.join(root,single_file))
+            else:
+                filepath_list.append(str(single_file_or_dir))
         
-        items = answer_dict.items()
-        items.sort(key = itemgetter(1))
-
+        return filepath_list
+    
+    
+    def run(self):
+        
+        self.waiting.emit()
+        
+        self.filepath_list = self.create_filepath_list(self.filepath_dir_list)
+        
+        ''' Algorithm description:
+        
+            for each file do:
+                a) see if file is valid:
+            
+                b) generate hash of file and look if an association exists, remember result
+                
+                c) if no association exists, generate levenshtein, remember result
+            
+            emit result into appropiate editor
+        
+        '''
+        
+        movieclip_associations = []
+        
+        filepath_list_length = len(self.filepath_list)
+        for index, filepath in enumerate(self.filepath_list):
+            
+            movieclip_association = MovieClipAssociation(filepath)
+            movieclip_associations.append(movieclip_association)
+        
+            self.description = "%s from %s" % (index+1, filepath_list_length)
+            filename, ext = os.path.splitext(os.path.basename(filepath))
+            
+            if not os.path.isfile(filepath) or not settings.is_valid_file_extension(filepath):
+                # a)
+                movieclip_association.message = movieclip_association.INVALID_FILE
+                movieclip_association.skip = True
+            else:
+                # b)
+                checksum = None
+                if settings.get("hash_movieclips"):
+                    checksum = self.calculate_checksum(filepath)
+                    
+                movieclip = MovieClip(filepath, checksum = checksum)
+                
+                if settings.get("hash_movieclips"):        
+                    episode_dict = movieclips.get_episode_dict_with_matching_checksums(movieclip.checksum)
+                
+                if not (not settings.get("hash_movieclips") or len(episode_dict.items()) == 0 or episode_dict.items()[0][0] is None):
+                    episode = episode_dict.items()[0][0]                        
+                    found_movieclip = episode_dict.items()[0][1]
+                    movieclip_association.episode_scores_list = [(episode, 0)]
+                    movieclip_association.movieclip = found_movieclip
+                    movieclip_association.message = movieclip_association.ASSOCIATION_FOUND
+                else:
+                    # c)
+                    episode_list = self.create_episode_list(self.series)
+                    
+                    episode_list_length = len(episode_list)
+                    counter = 0
+                    
+                    episode_score_dict = {}
+                    for episode in episode_list:
+                        title = episode.get_normalized_name()
+                        alternative_title = episode.get_alternative_name()
+                        score = min(self.dameraulevenshtein(title, filename), self.dameraulevenshtein(alternative_title, filename))
+                        episode_score_dict[episode] = score
+                        self.progress.emit(counter, episode_list_length)
+                        counter += 1
+                    
+                    items = episode_score_dict.items()
+                    items.sort(key = itemgetter(1))
+                    
+                    movieclip_association.movieclip = movieclip
+                    movieclip_association.episode_scores_list = items
+                    movieclip_association.message = movieclip_association.ASSOCIATION_GUESSED
+        
+        self.result.emit(movieclip_associations)
         self.finished.emit()
-        
-        self.possible_matches_found.emit(self.filepath, items, self.movieclip)
-            
-        
-    def dameraulevenshtein(self, seq1, seq2, lower = False):
-        if lower:
-            seq1 = seq1.lower()
-            seq2 = seq2.lower()
-        """Calculate the Damerau-Levenshtein distance between sequences.
-    
-        This distance is the number of additions, deletions, substitutions,
-        and transpositions needed to transform the first sequence into the
-        second. Although generally used with strings, any sequences of
-        comparable objects will work.
-    
-        Transpositions are exchanges of *consecutive* characters; all other
-        operations are self-explanatory.
-    
-        This implementation is O(N*M) time and O(M) space, for N and M the
-        lengths of the two sequences.
-    
-        >>> dameraulevenshtein('ba', 'abc')
-        2
-        >>> dameraulevenshtein('fee', 'deed')
-        2
-    
-        It works with arbitrary sequences too:
-        >>> dameraulevenshtein('abcd', ['b', 'a', 'c', 'd', 'e'])
-        2
-        """
-        # codesnippet:D0DE4716-B6E6-4161-9219-2903BF8F547F
-        # Conceptually, this is based on a len(seq1) + 1 * len(seq2) + 1 matrix.
-        # However, only the current and two previous rows are needed at once,
-        # so we only store those.
-        oneago = None
-        thisrow = range(1, len(seq2) + 1) + [0]
-        for x in xrange(len(seq1)):
-            # Python lists wrap around for negative indices, so put the
-            # leftmost column at the *end* of the list. This matches with
-            # the zero-indexed strings and saves extra calculation.
-            twoago, oneago, thisrow = oneago, thisrow, [0] * len(seq2) + [x + 1]
-            for y in xrange(len(seq2)):
-                delcost = oneago[y] + 1
-                addcost = thisrow[y - 1] + 1
-                subcost = oneago[y - 1] + (seq1[x] != seq2[y])
-                thisrow[y] = min(delcost, addcost, subcost)
-                # This block deals with transpositions
-                if (x > 0 and y > 0 and seq1[x] == seq2[y - 1]
-                    and seq1[x-1] == seq2[y] and seq1[x] != seq2[y]):
-                    thisrow[y] = min(thisrow[y], twoago[y - 2] + 1)
-        return thisrow[len(seq2) - 1]
-    
-            
 
-class MovieClipAssociator(AssignerThread):
+
+
+class MultipleMovieClipAssociator(AssignerThread):
     ''' This class is responsible for associating a movie clip with a given episode.
         It emits various signals which can be used for feedback.
     '''
     
-    def __init__(self, filepath, episode, movieclip = None):
+    def __init__(self, movieclip_associations):
         AssignerThread.__init__(self)
-        self.episode = episode
-        self.filepath = unicode(filepath)
+        self.movieclip_associations = movieclip_associations
         self.description = "Assigning movieclip to a given episode" 
-        
-        if movieclip is not None:
-            self.clip = movieclip
-            # Update identifier
-            self.clip.identifier = self.episode.identifier
-        else:
-            self.clip = None
-                        
 
     def run(self):
-        self.identifier = self.episode.get_identifier()
-        
-        if not os.path.isfile(self.filepath) or not settings.is_valid_file_extension(self.filepath):
-            self.filesystem_error.emit(self.episode, self.filepath)
-            self.finished.emit()
-        else:
-            self.waiting.emit()
-            if self.clip is None:
-                self.checksum = self.calculate_checksum()
-            else:
-                self.checksum = self.clip.checksum  
-        
-            if self.clip is None:
-                self.clip = MovieClip(self.filepath, identifier = self.episode.identifier, checksum = self.checksum)        
-            # Check and see if the movieclip is already associated with _another_ movie and display warning
-            unique = movieclips.check_unique(self.clip, self.identifier)
+        self.waiting.emit()
+        for movieclip_association in self.movieclip_associations:
+            if movieclip_association.movieclip is None:
+                checksum = None
+                if settings.get("hash_movieclips"):
+                    checksum = self.calculate_checksum(movieclip_association.filepath)
+                    
+                movieclip_association.movieclip = MovieClip(movieclip_association.filepath, checksum = checksum)
             
-            if not unique:
-                self.already_exists_in_another.emit()            
-            else:
-                self.assign()
+            if not movieclip_association.skip:
+                movieclip_association.movieclip.identifier = movieclip_association.get_associated_episode_score()[0].identifier
+                self.assign(movieclip_association)
+        
+        self.finished.emit()
     
-    def assign(self):
+    def assign(self, movieclip_association):
         """ Here is a list of possibilities that might occur:
                 a) The clip is already in the movieclip dict and in its designated folder
                 b) The clip is already in the movieclip dict, but not in its designated folder
@@ -230,17 +284,18 @@ class MovieClipAssociator(AssignerThread):
         
         self.waiting.emit()
         
-        filename = os.path.basename(self.filepath)
+        filename = os.path.basename(movieclip_association.filepath)
+        episode, score = movieclip_association.get_associated_episode_score()
         
         # Calculate hypothetical filepath
-        destination = settings.calculate_filepath(self.episode, filename)
+        destination = settings.calculate_filepath(episode, filename)
         directory = os.path.dirname(destination)
         
-        if self.clip in movieclips[self.identifier]:
+        if movieclip_association.movieclip in movieclips[episode.get_identifier()]:
             
             if os.path.isfile(destination):
                 # a)
-                self.already_exists.emit(self.episode, self.filepath)
+                self.already_exists.emit(episode, movieclip_association.filepath)
                 move_to_folder = False
                 add_to_movieclips = False                    
             else:
@@ -260,88 +315,22 @@ class MovieClipAssociator(AssignerThread):
         
         if move_to_folder:
             # Check if there is already a file with the same name, normalizes file name if set to do so
-            filename = settings.get_unique_filename(destination, self.episode)
+            filename = settings.get_unique_filename(destination, episode)
             
             # Move the file to the actual folder
-            settings.move_file_to_folder_structure(self.episode, self.filepath, new_filename = filename)
+            settings.move_file_to_folder_structure(episode, movieclip_association.filepath, new_filename = filename)
             
-            # Update the filepath of the clip            
-            self.clip.filepath = os.path.join(directory, filename)
+            # Update the filepath of the clip  
+            print movieclip_association.movieclip          
+            movieclip_association.movieclip.filepath = os.path.join(directory, filename)
     
         if add_to_movieclips:
             # Add the clips to the movie clips manager
-            movieclips.add(self.clip)                  
+            movieclips.add(movieclip_association.movieclip)                  
                         
-        self.load_information.emit(self.episode)
-        self.finished.emit()
+        self.load_information.emit(episode)
 
 
-     
-
-class MovieClipAssigner(AssignerThread):
-    ''' This class is responsible for assigning a movie clip to a unknown episode.
-        It calculates the hash value of a the given file and looks for matches in appropiate data structures.
-        If no matches are found the "no_association_found' signal is emitted.
-        If one or more matches are found the movie clip file is moved/copied to the designated folder.
-    '''
-    
-    def __init__(self, filepath, series):
-        AssignerThread.__init__(self)
-        self.filepath = unicode(filepath)
-        self.series = series # Can be none
-        
-        hint = ""
-        if self.series is not None:
-            hint = " Hint: " + series.title
-            
-        self.description = "Assigning movieclip to a unknown episode" + hint
-        
-        
-    def run(self):
-        if not os.path.isfile(self.filepath) or not settings.is_valid_file_extension(self.filepath):
-            self.filesystem_error.emit(None, self.filepath)
-            self.finished.emit()
-        else:           
-            self.waiting.emit()     
-            self.movieclip = MovieClip(self.filepath, checksum = self.calculate_checksum())
-                    
-            episode_dict = movieclips.get_episode_dict_with_matching_checksums(self.movieclip.checksum)
-                    
-            if len(episode_dict.items()) == 0 or episode_dict.items()[0][0] is None:
-                self.no_association_found.emit()
-                self.finished.emit()   
-            else:
-                # Assign first movieclip to first episode and first movieclip found
-                self.assign(episode_dict.items()[0][0], episode_dict.items()[0][1])
-        
-    def assign(self, episode, movieclip):        
-        
-        # Calculate destination of movieclip
-        destination = settings.calculate_filepath(episode, os.path.basename(self.filepath))
-        
-        
-        if os.path.isfile(destination):
-            # The movie clip is already at its destination
-            self.already_exists.emit(movieclip, destination)        
-        else:        
-            # Extract directory
-            directory = os.path.dirname(destination)
-            
-            # Check if there is already a file with the same name, normalizes file name if set to do so
-            filename = settings.get_unique_filename(destination, episode)
-            
-            # Move the file to its folder
-            settings.move_file_to_folder_structure(episode, self.filepath, new_filename = filename)
-            
-            # Emit associating found signal
-            self.association_found.emit(movieclip, episode)
-            
-            # Change filepath on movieclip object
-            movieclip.filepath = os.path.join(directory, filename)
-            
-        self.finished.emit()
- 
- 
 class ThumbnailGenerator(WorkerThread):
     thumbnails_created = QtCore.pyqtSignal("PyQt_PyObject")
     error_in_thumbnail_creation = QtCore.pyqtSignal()
@@ -367,8 +356,13 @@ class ThumbnailGenerator(WorkerThread):
         # Get length of video clip
         length_command = 'ffmpeg -i "' + self.filepath + '"'
         length_command_args = shlex.split(str(length_command))
-        length_process = subprocess.Popen(length_command_args, stderr=subprocess.PIPE, stdout=subprocess.PIPE).communicate()       
-        duration = self.get_duration_from_ffprobe_output(length_process[1])
+        length_process = subprocess.Popen(length_command_args, stderr=subprocess.PIPE, stdout=subprocess.PIPE).communicate()
+        try:       
+            duration = self.get_duration_from_ffprobe_output(length_process[1])
+        except AttributeError:
+            self.error_in_thumbnail_creation.emit()
+            self.finished.emit()
+            return
         
         #ffmpeg -i foo.avi -r 1 -s WxH -f image2 foo-%03d.jpeg
         #http://www.ffmpeg.org/ffmpeg-doc.html
