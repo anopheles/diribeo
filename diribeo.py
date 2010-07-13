@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 
-import diribeoworkers
 
 __author__ = 'David Kaufman'
 __version__ = '0.0.1dev'
@@ -81,7 +80,14 @@ class WorkerThreadManager(object):
         self.progressbar.setMaximum(maximum)  
     
     def refresh_statusbar(self):
-        list_of_descriptions = [worker_thread[0].description for worker_thread in self.worker_thread_dict.items()]
+        list_of_descriptions = []
+        for worker_thread in self.worker_thread_dict.items():
+            additional_description = ""
+            descriptions = worker_thread[0].additional_descriptions.items()
+            if len(descriptions ) != 0:
+                additional_description = " (" + " ".join([description[1] for description in descriptions]) + ")"
+            list_of_descriptions.append(worker_thread[0].description + additional_description)
+        
         if len(list_of_descriptions) > 0:
             self.statusbar.showMessage(", ".join(list_of_descriptions))
         else:
@@ -754,9 +760,11 @@ class MultipleAssociationTableModel(QtCore.QAbstractTableModel):
                 return diribeoutils.get_gradient(QtGui.QColor(Qt.red))
             try:
                 episode, score = movieclip_association.get_associated_episode_score()  
-                if score > 12:
+                if score < 8:
+                    return diribeoutils.get_gradient(QtGui.QColor(Qt.green))
+                elif score < 20:
                     return diribeoutils.get_gradient(QtGui.QColor(Qt.yellow))
-                if score > 25:
+                else:
                     return diribeoutils.get_gradient(QtGui.QColor(Qt.red))
             except KeyError:
                 pass     

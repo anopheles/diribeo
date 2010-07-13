@@ -54,7 +54,7 @@ class MovieClip(object):
             return self.filesize
         except AttributeError:
             """This function calculates the file size in bytes of the given file and returns the result"""
-            assert os.path.isfile(self.filepath)
+            assert os.path.isfile(self.filepath), self.filepath
     
             self.filesize = os.path.getsize(self.filepath)
             return self.filesize
@@ -170,7 +170,7 @@ class Settings(object):
                              "show_all_movieclips" : True,
                              "normalize_names" : True,
                              "thumbnail_folder" : os.path.join(self.get_user_dir(),"Series",".thumbnails"),
-                             "hash_movieclips" : False,
+                             "hash_movieclips" : True,
                              "number_of_thumbnails" : 8}
         else:
             self.settings = settings      
