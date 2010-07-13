@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 
 import datetime
-import locale
-
 import tvrage.api
 
 from diribeomodel import Episode, NoConnectionAvailable, series_list, DownloadedSeries

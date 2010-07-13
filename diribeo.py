@@ -697,8 +697,9 @@ class MultipleAssociationWizard(QtGui.QWizard):
         self.addPage(MultipleAssociationTable(movieclip_associations))
         self.accepted.connect(self.wizard_complete)
     
-    def wizard_complete(self):
-        mainwindow.add_movieclip_associations_to_episodes(self.movieclip_associations)
+    def wizard_complete(self):        
+        filtered_movieclip_associations = [movieclip_asssociation for movieclip_asssociation in self.movieclip_associations if not movieclip_asssociation.skip]        
+        mainwindow.add_movieclip_associations_to_episodes(filtered_movieclip_associations)
 
 
 

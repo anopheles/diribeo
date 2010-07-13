@@ -1,9 +1,4 @@
 # -*- coding: utf-8 -*-
-'''
-Created on 05.07.2010
-
-@author: anopheles
-'''
 
 import datetime
 import json

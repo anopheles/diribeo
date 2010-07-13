@@ -1,8 +1,4 @@
-'''
-Created on 08.07.2010
-
-@author: anopheles
-'''
+# -*- coding: utf-8 -*-
 
 from PyQt4 import QtGui, QtCore
 from PyQt4.QtCore import Qt
