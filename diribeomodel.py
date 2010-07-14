@@ -324,6 +324,10 @@ class Series(object):
         
     def get_identifier(self):
         return self.identifier.items()[0]
+        
+    def get_implementation_identifier(self):
+        return self.identifier.items()[0][0]
+
 
 class Episode(object):
     def __init__(self, title = "", descriptor = None, series = "", date = None, plot = "", identifier = None, rating = None, director = "", runtime = "", genre = "", seen_it = False, number = 0):
@@ -393,6 +397,12 @@ class Episode(object):
         # Use the first key as unique identifier. Note that this is propably not a good idea!
         return self.identifier.items()[0]
         
+    def get_implementation_identifier(self):
+        return self.identifier.items()[0][0]
+    
+    def merge(self, new_episode):
+        self.plot = new_episode.plot
+    
     def get_ratings(self):
         return_text = ""
         for rating in self.rating:

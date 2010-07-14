@@ -11,7 +11,7 @@ import re
 import diribeomessageboxes
 import collections
 
-from diribeomodel import settings, movieclips, series_list, MovieClip, NoConnectionAvailable, MovieClipAssociation
+from diribeomodel import settings, movieclips, series_list, MovieClip, NoConnectionAvailable, MovieClipAssociation, save_configs
 from diribeowrapper import library
 from operator import itemgetter
 from PyQt4 import QtCore
@@ -59,10 +59,7 @@ class WorkerThread(QtCore.QThread):
             checksum = self.hash_file(iso_file, hashlib.sha224(), self.progress.emit)
             return checksum
 
-    def dameraulevenshtein(self, seq1, seq2, lower = False):
-            if lower:
-                seq1 = seq1.lower()
-                seq2 = seq2.lower()
+    def dameraulevenshtein(self, seq1, seq2):
             """Calculate the Damerau-Levenshtein distance between sequences.
         
             This distance is the number of additions, deletions, substitutions,
@@ -226,20 +223,19 @@ class MultipleAssignerThread(WorkerThread):
                     episode_list_length = len(episode_list)
                     counter = 0
                     
-                    episode_score_dict = {}
+                    episode_score_list = []
                     for episode in episode_list:
                         title = episode.get_normalized_name()
                         alternative_title = episode.get_alternative_name()
                         score = min(self.dameraulevenshtein(title, filename), self.dameraulevenshtein(alternative_title, filename))
-                        episode_score_dict[episode] = score
+                        episode_score_list.append([episode,score])
                         self.progress.emit(counter, episode_list_length)
                         counter += 1
                     
-                    items = episode_score_dict.items()
-                    items.sort(key = itemgetter(1))
+                    episode_score_list.sort(key = itemgetter(1))
                     
                     movieclip_association.movieclip = movieclip
-                    movieclip_association.episode_scores_list = items
+                    movieclip_association.episode_scores_list = episode_score_list
                     movieclip_association.message = movieclip_association.ASSOCIATION_GUESSED
                     self.additional_descriptions["guess"] = ""
         
@@ -364,10 +360,10 @@ class ThumbnailGenerator(WorkerThread):
         # Get length of video clip
         length_command = 'ffmpeg -i "' + self.filepath + '"'
         length_command_args = shlex.split(str(length_command))
-        length_process = subprocess.Popen(length_command_args, stderr=subprocess.PIPE, stdout=subprocess.PIPE).communicate()
         try:       
+            length_process = subprocess.Popen(length_command_args, stderr=subprocess.PIPE, stdout=subprocess.PIPE).communicate()
             duration = self.get_duration_from_ffprobe_output(length_process[1])
-        except AttributeError:
+        except (AttributeError, OSError):
             self.error_in_thumbnail_creation.emit()
             self.finished.emit()
             return
@@ -429,7 +425,6 @@ class SeriesSearchWorker(WorkerThread):
             self.no_connection_available.emit()
         
         self.finished.emit()
-
 
 class ModelFiller(WorkerThread):
     

@@ -7,22 +7,21 @@ from diribeomodel import Episode, NoConnectionAvailable, series_list, Downloaded
 
 class LibraryWrapper(object):
     def __init__(self):
-        self.implementations = [TVRageWrapper(), IMDBWrapper()]
-
+        self.implementations = dict([(implementation.identifier,implementation) for implementation in [IMDBWrapper(), TVRageWrapper()]])
+    
     def get_episodes(self, identifier, implementation_identifier):
-        for implementation in self.implementations:
-            if implementation.identifier == implementation_identifier:
-                return implementation.get_episodes(identifier)
+        return self.implementations[implementation_identifier].get_episodes(identifier)
         
     def get_more_information(self, series, movie, implementation_identifier):
-        for implementation in self.implementations:
-            if implementation.identifier == implementation_identifier:
-                return implementation.get_more_information(series, movie)
+        return self.implementations[implementation_identifier].get_more_information(series, movie)
 
+    def update_movie(self, movie, implementation_identifier):
+        return self.implementations[implementation_identifier].update_movie(movie)
+    
     def search_movie(self, title):
         output = []
         for implementation in self.implementations:
-            output += implementation.search_movie(title)
+            output += self.implementations[implementation].search_movie(title)
         return output
 
     def get_series_from_identifier(self, identifier):
@@ -56,6 +55,9 @@ class SourceWrapper(object):
         raise NotImplementedError
     
     def search_movie(self, title):
+        raise NotImplementedError
+    
+    def update_episode(self, episode):
         raise NotImplementedError
 
 class TVRageWrapper(SourceWrapper):
@@ -137,16 +139,8 @@ class IMDBWrapper(SourceWrapper):
             if type(seasonnumber) == type(1):
                 for imdb_episode_number in seasons[seasonnumber]:  
                     imdb_episode = seasons[seasonnumber][imdb_episode_number]
-                    date = self.__convert_string_to_date(str(imdb_episode.get('original air date')))                   
-                    episode = Episode(title = imdb_episode.get('title'), 
-                                      descriptor = [imdb_episode.get('season'), imdb_episode.get('episode')], 
-                                      series = (imdb_series.get('title'), {"imdb" : imdb_series.movieID}), 
-                                      date = date, plot = imdb_episode.get('plot'), 
-                                      identifier = {"imdb" : imdb_episode.movieID}, 
-                                      rating = {"imdb" : self.__get_rating(ratings, imdb_episode)}, 
-                                      number = counter)
                     counter += 1
-                    yield episode, numberofepisodes
+                    yield self.__imdb_episode_to_episode(imdb_episode, imdb_series = imdb_series, ratings = ratings, counter = counter), numberofepisodes
 
     def __convert_string_to_date(self, datestring):
         splitted_datestring = datestring.split()
@@ -166,6 +160,42 @@ class IMDBWrapper(SourceWrapper):
 
           
         return datetime.date(year, month, day)
+
+
+    def update_movie(self, old_movie):
+        imdb_movie = self.ia.get_movie(old_movie.get_identifier()[1])
+        new_episode = self.__imdb_episode_to_episode(imdb_movie)
+        old_movie.merge(new_episode)
+        
+    
+    def __imdb_episode_to_episode(self, imdb_episode, imdb_series = None, ratings = None, counter = None):
+            
+            if imdb_series is not None:
+                series = (imdb_series.get('title'), {"imdb" : imdb_series.movieID})                
+            else:
+                series = None
+                
+            if ratings is not None:
+                rating = {"imdb" : self.__get_rating(ratings, imdb_episode)}
+            else:
+                rating = None
+                               
+            date = self.__convert_string_to_date(str(imdb_episode.get('original air date')))
+            
+            plot = imdb_episode.get('plot')
+            if isinstance(plot, list):
+                plot = "".join(plot)
+            
+            episode = Episode(title = imdb_episode.get('title'), 
+                              descriptor = [imdb_episode.get('season'), imdb_episode.get('episode')], 
+                              series = series, 
+                              date = date, 
+                              plot = plot, 
+                              identifier = {"imdb" : imdb_episode.movieID}, 
+                              rating = rating, 
+                              number = counter)
+            return episode
+        
 
     def get_more_information(self, series, movie):
         self.ia.update(movie)

@@ -480,7 +480,8 @@ class SeriesInformationCategory(QtGui.QWidget):
         
     def setText(self, text):
         if text == None or text == "":
-            text = self.default           
+            text = self.default  
+            
         self.set_content(text)
 
     def reset(self):
@@ -556,7 +557,7 @@ class SeriesInformationWidget(QtGui.QStackedWidget):
         else:
             #self.tableview.scrollTo(self.movie.number, QtGui.QAbstractItemView.PositionAtTop) #TODO
             self.rating.setVisible(True)
-            self.rating.setText(movie.get_ratings()) 
+            self.rating.setText(movie.get_ratings())
             self.plot.setText(movie.plot)
             self.plot.setVisible(True)
             self.delete_button.setVisible(False)
@@ -579,6 +580,14 @@ class SeriesInformationWidget(QtGui.QStackedWidget):
         except TypeError:
             pass
         self.movieclipwidget.content.open_folder_button.clicked.connect(functools.partial(mainwindow.start_assign_dialog, movie))
+        
+        
+        try:
+            self.update_button.clicked.disconnect()
+        except TypeError:
+            pass
+        self.update_button.clicked.connect(functools.partial(mainwindow.update_movie, movie))
+                
         self.movieclipwidget.content.load_movieclips(movie)   
         
     def dragEnterEvent(self, event):
@@ -724,14 +733,11 @@ class MultipleAssociationTableModel(QtCore.QAbstractTableModel):
             if index.column() == 0:
                 return QtCore.QString(os.path.basename(movieclip_association.filepath))
             elif  index.column() == 1:
-                message = movieclip_association.message
-                if message == movieclip_association.ASSOCIATION_FOUND:
-                    message_text = "Association found"
-                elif message == movieclip_association.ASSOCIATION_GUESSED:
-                    message_text = "Guessed episode"
-                elif message == movieclip_association.INVALID_FILE:
-                    message_text = "Invalid file"
+                message_text = { movieclip_association.ASSOCIATION_FOUND : "Association found",
+                 movieclip_association.ASSOCIATION_GUESSED : "Guessed episode",
+                 movieclip_association.INVALID_FILE : "Invalid file"}[movieclip_association.message]
                 return QtCore.QString(message_text)
+            
             elif index.column() == 3:
                 try:
                     return QtCore.QString(movieclip_association.episode_scores_list)
@@ -1015,6 +1021,7 @@ class MainWindow(QtGui.QMainWindow):
 
 
     def closeEvent(self, event):
+        self.hide()
         diribeomodel.save_configs()
     
     def start_series_adder_wizard(self):
@@ -1023,6 +1030,10 @@ class MainWindow(QtGui.QMainWindow):
         wizard.show()
         wizard.exec_()
     
+    
+    def update_movie(self, movie):
+        library.update_movie(movie, movie.get_implementation_identifier())
+        self.seriesinfo.load_information(movie)
     
     def start_multiple_association_wizard(self, movieclip_associations):
         wizard = MultipleAssociationWizard(movieclip_associations)
@@ -1033,9 +1044,10 @@ class MainWindow(QtGui.QMainWindow):
         
         if isinstance(movie, Episode):
             filepath = QtGui.QFileDialog.getOpenFileName(directory = settings.get_user_dir())
-            movieclip_association = MovieClipAssociation(str(filepath))            
-            movieclip_association.episode_scores_list = [[movie, 0]]
-            mainwindow.add_movieclip_associations_to_episodes([movieclip_association])
+            if filepath != "":
+                movieclip_association = MovieClipAssociation(str(filepath))            
+                movieclip_association.episode_scores_list = [[movie, 0]]
+                mainwindow.add_movieclip_associations_to_episodes([movieclip_association])
         else:
             filepath_dir_list = QtGui.QFileDialog.getOpenFileNames(directory = settings.get_user_dir())
             mainwindow.multiple_assigner(filepath_dir_list, movie)
@@ -1063,7 +1075,7 @@ class MainWindow(QtGui.QMainWindow):
             job.start()
         
 
-    def add_movieclip_associations_to_episodes(self, movieclip_associations):        
+    def add_movieclip_associations_to_episodes(self, movieclip_associations):      
         job = MultipleMovieClipAssociator(movieclip_associations) 
         job.load_information.connect(self.seriesinfo.load_information, Qt.QueuedConnection)
         job.already_exists.connect(diribeomessageboxes.already_exists_warning, Qt.QueuedConnection) 
