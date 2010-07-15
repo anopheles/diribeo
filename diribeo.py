@@ -19,7 +19,7 @@ import diribeowrapper
 import diribeoutils
 
 from diribeomodel import Series, Episode, MovieClipAssociation
-from diribeoworkers import SeriesSearchWorker, ModelFiller, MultipleMovieClipAssociator, ThumbnailGenerator, MultipleAssignerThread
+from diribeoworkers import SeriesSearchWorker, ModelFiller, MultipleMovieClipAssociator, ThumbnailGenerator, MultipleAssignerThread, MovieUpdater
 
 
 from PyQt4 import QtGui
@@ -555,7 +555,6 @@ class SeriesInformationWidget(QtGui.QStackedWidget):
             self.rating.setVisible(False)
             self.seenit.setVisible(False)
         else:
-            #self.tableview.scrollTo(self.movie.number, QtGui.QAbstractItemView.PositionAtTop) #TODO
             self.rating.setVisible(True)
             self.rating.setText(movie.get_ratings())
             self.plot.setText(movie.plot)
@@ -604,7 +603,7 @@ class SeriesInformationWidget(QtGui.QStackedWidget):
             else:
                 mainwindow.find_episode_to_movieclip(filepath, self.movie)
             
-        except AttributeError, IndexError:
+        except (AttributeError, IndexError):
             pass
         event.accept() 
 
@@ -665,7 +664,7 @@ class SeriesInformationDock(QtGui.QDockWidget):
         self.seriesinfo = SeriesInformationWidget() 
         scrollArea = QtGui.QScrollArea()
         scrollArea.setWidgetResizable(True)
-        scrollArea.setMinimumWidth(325) # TODO
+        #scrollArea.setMinimumWidth(325) # TODO
         scrollArea.setWidget(self.seriesinfo)
         self.setWidget(scrollArea)
         self.setWindowTitle("Additional Information")
@@ -1030,10 +1029,11 @@ class MainWindow(QtGui.QMainWindow):
         wizard.show()
         wizard.exec_()
     
-    
     def update_movie(self, movie):
-        library.update_movie(movie, movie.get_implementation_identifier())
-        self.seriesinfo.load_information(movie)
+        job = MovieUpdater(movie)
+        job.finished.connect(functools.partial(self.seriesinfo.load_information,movie))
+        self.jobs.append(job)
+        job.start()
     
     def start_multiple_association_wizard(self, movieclip_associations):
         wizard = MultipleAssociationWizard(movieclip_associations)

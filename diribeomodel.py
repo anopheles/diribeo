@@ -279,6 +279,11 @@ class Series(object):
         self.date = date
         self.season = {}
     
+    
+    def merge(self, old_series):
+        pass
+    
+    
     def __getitem__(self, key):
         ''' Returns the n-th episode of the series '''
         return self.episodes[key]

@@ -15,8 +15,8 @@ class LibraryWrapper(object):
     def get_more_information(self, series, movie, implementation_identifier):
         return self.implementations[implementation_identifier].get_more_information(series, movie)
 
-    def update_movie(self, movie, implementation_identifier):
-        return self.implementations[implementation_identifier].update_movie(movie)
+    def update_movie(self, movie):
+        return self.implementations[movie.get_implementation_identifier()].update_movie(movie)
     
     def search_movie(self, title):
         output = []

@@ -117,7 +117,6 @@ class AssignerThread(WorkerThread):
         WorkerThread.__init__(self)
 
 
-
 class MultipleAssignerThread(WorkerThread):
     
     result = QtCore.pyqtSignal("PyQt_PyObject")
@@ -241,7 +240,6 @@ class MultipleAssignerThread(WorkerThread):
         
         self.result.emit(movieclip_associations)
         self.finished.emit()
-
 
 
 class MultipleMovieClipAssociator(AssignerThread):
@@ -400,6 +398,22 @@ class ThumbnailGenerator(WorkerThread):
         for file in filelist:
             self.image_list.append(file)
         
+
+
+class MovieUpdater(WorkerThread):
+    def __init__(self, movie):
+        WorkerThread.__init__(self)
+        self.movie = movie
+        self.description =  "Updating movie"
+        
+    def run(self):
+        self.waiting.emit()
+        
+        library.update_movie(self.movie)
+        
+        self.finished.emit()
+    
+
 
 class SeriesSearchWorker(WorkerThread):
     no_connection_available = QtCore.pyqtSignal() # Is emitted whenever there is no active internet connection available
