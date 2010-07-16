@@ -27,23 +27,7 @@ class MovieClip(object):
     def get_filename(self):
         return os.path.basename(self.filepath)    
     
-    def get_thumbnails(self):
-        """ This function gathers the thumbnails and adds them to the dedicated thumnails list"""
-        pass
-
-    def merge(self, other):
-        """ This function merges the current movie clip object with another one.
-        The current movie clip will be updated.
-        
-        To be able to merge two movie clips both movie clips must have the same checksum.
-        If this is not the case a TypeError exception is raised.
-        
-        """
-        if self == other:
-            self.identifier.update(other.identifier)
-        else:
-            raise TypeError, "You're trying to merge two movie clips which don't have the same checksum"
-        
+    
     def get_filesize(self):
         try:
             return self.filesize
@@ -59,24 +43,28 @@ class MovieClip(object):
         if os.path.isfile(self.filepath):
             return os.path.dirname(self.filepath)
 
-    def delete_file_in_deployment_folder(self, series_name):
+    def delete_file_in_deployment_folder(self):
+        ''' Deletes the file in the deplyoment folder '''
+            
         if os.path.isfile(self.filepath):
-            os.remove(self.filepath)
+            os.remove(self.filepath)    
+    
+    def delete_thumbnails(self):
+        ''' Delete the generated thumbnails '''                
+        for filepath in self.thumbnails:
+            os.remove(filepath)
+            
+        self.thumbnails = []
     
     def __eq__(self, other):
         if self.checksum == other.checksum:
             return True
-    
-    def __hash__(self):
-        return hash(self.checksum)
-        
+
     def __repr__(self):
         return "M(" + self.filepath + ")"
 
 
-class NoConnectionAvailable(Exception):
-    def __init__(self):
-        pass
+class NoInternetConnectionAvailable(Exception): pass
 
 
 class DownloadedSeries(object):
@@ -376,9 +364,6 @@ class Episode(object):
     def get_descriptor(self):
         return str(self.descriptor[0]) + "x" + str('%0.2d' % self.descriptor[1])
 
-    def get_alternative_descriptor(self):
-        return "S" + str('%0.2d' % self.descriptor[0]) + "E" + str('%0.2d' % self.descriptor[1])
-
     
     def get_thumbnails(self):
         thumbnail_list = []
@@ -395,8 +380,8 @@ class Episode(object):
     def get_normalized_name(self):
         return self.series[0] + " " + self.get_descriptor() + " - " + self.title
     
-    def get_alternative_name(self):
-        return self.series[0] + " " + self.get_alternative_descriptor()
+    def get_alternative_titles(self):
+        return [self.series[0] + " " + "S" + str('%0.2d' % self.descriptor[0]) + "E" + str('%0.2d' % self.descriptor[1])]
     
     def get_identifier(self):
         # Use the first key as unique identifier. Note that this is propably not a good idea!
@@ -437,8 +422,8 @@ class MovieClipManager(object):
     
     def get_episode_dict_with_matching_checksums(self, checksum):
         ''' This function searches for the given checksum in the internal data structures.
-            It returns two lists as a tuple. The first beign a list of episodes. The second
-            beign a list of movie clips which match the checksum.
+            It returns two lists as a tuple. The first being a list of episodes. The second
+            being a list of movie clips which match the checksum.
         '''
         
         episode_dict = {} # episode are keys, movieclips are values

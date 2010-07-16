@@ -210,9 +210,7 @@ class LocalTreeWidget(QtGui.QTreeWidget):
         except AttributeError:
             pass #No Series Affinity
             
-        filepath_dir_list = []
-        for filepath in event.mimeData().urls():
-            filepath_dir_list.append(os.path.abspath(unicode(filepath.toLocalFile())))
+        filepath_dir_list = [url.toLocalFile() for url in event.mimeData().urls()]    
         mainwindow.multiple_assigner(filepath_dir_list, series)
         event.accept()
         
@@ -237,7 +235,6 @@ class LocalSearch(QtGui.QFrame):
 
 
     def sort_tree(self):
-        # This also sorts children which produces a unwanted sorting
         self.localseriestree.sortItems(0, Qt.AscendingOrder)
 
 
@@ -397,7 +394,8 @@ class MovieClipInformationWidget(QtGui.QFrame):
         self.title.setText(movieclip.get_filename())
      
     def delete(self):
-        self.movieclip.delete_file_in_deployment_folder(self.movie.series)
+        self.movieclip.delete_file_in_deployment_folder()
+        self.movieclip.delete_thumbnails()
         self.remove()
       
     def remove(self):
@@ -419,7 +417,7 @@ class MovieClipOverviewWidget(QtGui.QWidget):
         self.setLayout(self.vbox)        
         self.movieclipinfos = []   
         open_folder_icon = QtGui.QIcon("images/plus.png")
-        self.open_folder_button = QtGui.QPushButton(open_folder_icon, "To add movie clips drag them here or click here")
+        self.open_folder_button = QtGui.QPushButton(open_folder_icon, "To add a movie clip drag it here or simply click this button")
         self.vbox.addWidget(self.open_folder_button)
         self.movie = None
     
@@ -597,11 +595,11 @@ class SeriesInformationWidget(QtGui.QStackedWidget):
         
     def dropEvent(self, event):        
         try:
-            filepath = event.mimeData().urls()[0].toLocalFile()            
+            filepaths = [url.toLocalFile() for url in event.mimeData().urls()]            
             if isinstance(self.movie, Episode):
-                mainwindow.add_movieclip_to_episode(filepath, self.movie)
+                mainwindow.add_movieclip_to_episode(filepaths[0], self.movie)
             else:
-                mainwindow.find_episode_to_movieclip(filepath, self.movie)
+                mainwindow.multiple_assigner(filepaths, self.movie)
             
         except (AttributeError, IndexError):
             pass
@@ -718,6 +716,9 @@ class MultipleAssociationTableModel(QtCore.QAbstractTableModel):
         self.movieclip_associations = movieclip_associations
         
         self.column_lookup = ["Filename", "Message", "Skip?", "Association"]
+        self.movieclipassociation_messages = {MovieClipAssociation.ASSOCIATION_FOUND : "Association found",
+                                              MovieClipAssociation.ASSOCIATION_GUESSED : "Guessed episode",
+                                              MovieClipAssociation.INVALID_FILE : "Invalid file"}
      
     def rowCount(self, index):
         return len(self.movieclip_associations)
@@ -732,9 +733,7 @@ class MultipleAssociationTableModel(QtCore.QAbstractTableModel):
             if index.column() == 0:
                 return QtCore.QString(os.path.basename(movieclip_association.filepath))
             elif  index.column() == 1:
-                message_text = { movieclip_association.ASSOCIATION_FOUND : "Association found",
-                 movieclip_association.ASSOCIATION_GUESSED : "Guessed episode",
-                 movieclip_association.INVALID_FILE : "Invalid file"}[movieclip_association.message]
+                message_text = self.movieclipassociation_messages[movieclip_association.message]
                 return QtCore.QString(message_text)
             
             elif index.column() == 3:
@@ -990,11 +989,6 @@ class MainWindow(QtGui.QMainWindow):
         self.progressbar.setMaximumHeight(10)
         self.progressbar.setMaximumWidth(100)
         
-        # Initialize the tool bar
-        self.toolbar = ToolBar()
-        self.addToolBar(self.toolbar)
-        self.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
-        
         # Initialize local and online search
         local_search_dock = self.local_search_dock = LocalSearchDock()
         self.local_search = local_search_dock.local_search
@@ -1028,7 +1022,7 @@ class MainWindow(QtGui.QMainWindow):
         wizard.selection_finished.connect(self.load_items_into_table)             
         wizard.show()
         wizard.exec_()
-    
+     
     def update_movie(self, movie):
         job = MovieUpdater(movie)
         job.finished.connect(functools.partial(self.seriesinfo.load_information,movie))
@@ -1045,9 +1039,8 @@ class MainWindow(QtGui.QMainWindow):
         if isinstance(movie, Episode):
             filepath = QtGui.QFileDialog.getOpenFileName(directory = settings.get_user_dir())
             if filepath != "":
-                movieclip_association = MovieClipAssociation(str(filepath))            
-                movieclip_association.episode_scores_list = [[movie, 0]]
-                mainwindow.add_movieclip_associations_to_episodes([movieclip_association])
+                mainwindow.add_movieclip_to_episode(filepath, movie)
+                
         else:
             filepath_dir_list = QtGui.QFileDialog.getOpenFileNames(directory = settings.get_user_dir())
             mainwindow.multiple_assigner(filepath_dir_list, movie)
@@ -1075,11 +1068,16 @@ class MainWindow(QtGui.QMainWindow):
             job.start()
         
 
+    def add_movieclip_to_episode(self, filepath, movie):
+        movieclip_association = MovieClipAssociation(str(filepath))            
+        movieclip_association.episode_scores_list = [[movie, 0]]
+        mainwindow.add_movieclip_associations_to_episodes([movieclip_association])
+
     def add_movieclip_associations_to_episodes(self, movieclip_associations):      
         job = MultipleMovieClipAssociator(movieclip_associations) 
         job.load_information.connect(self.seriesinfo.load_information, Qt.QueuedConnection)
-        job.already_exists.connect(diribeomessageboxes.already_exists_warning, Qt.QueuedConnection) 
-        job.already_exists_in_another.connect(functools.partial(diribeomessageboxes.display_duplicate_warning, self), Qt.QueuedConnection)             
+        job.already_exists.connect(diribeomessageboxes.already_exists_warning, Qt.QueuedConnection)
+        job.already_exists_in_another.connect(diribeomessageboxes.display_duplicate_warning, Qt.QueuedConnection)
         job.filesystem_error.connect(diribeomessageboxes.filesystem_error_warning, Qt.QueuedConnection)
         self.jobs.append(job)
         job.start()

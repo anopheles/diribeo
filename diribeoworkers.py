@@ -11,7 +11,7 @@ import re
 import diribeomessageboxes
 import collections
 
-from diribeomodel import settings, movieclips, series_list, MovieClip, NoConnectionAvailable, MovieClipAssociation, save_configs
+from diribeomodel import settings, movieclips, series_list, MovieClip, NoInternetConnectionAvailable, MovieClipAssociation
 from diribeowrapper import library
 from operator import itemgetter
 from PyQt4 import QtCore
@@ -109,7 +109,7 @@ class AssignerThread(WorkerThread):
     no_association_found = QtCore.pyqtSignal()
     already_exists = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject") # This signal is emitted when the movieclip is already in the dict and in the folder
     association_found = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject")
-    filesystem_error = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject")
+    filesystem_error = QtCore.pyqtSignal("PyQt_PyObject")
     already_exists_in_another = QtCore.pyqtSignal() # Emitted when movieclip is in _another_ episode
     load_information = QtCore.pyqtSignal("PyQt_PyObject")
     
@@ -220,14 +220,11 @@ class MultipleAssignerThread(WorkerThread):
                     episode_list = self.create_episode_list(self.series)
                     
                     episode_list_length = len(episode_list)
-                    counter = 0
-                    
+                    counter = 0                    
                     episode_score_list = []
                     for episode in episode_list:
-                        title = episode.get_normalized_name()
-                        alternative_title = episode.get_alternative_name()
-                        score = min(self.dameraulevenshtein(title, filename), self.dameraulevenshtein(alternative_title, filename))
-                        episode_score_list.append([episode,score])
+                        score = min([self.dameraulevenshtein(title, filename) for title in episode.get_alternative_titles() + [episode.get_normalized_name()]])
+                        episode_score_list.append([episode, score])
                         self.progress.emit(counter, episode_list_length)
                         counter += 1
                     
@@ -257,21 +254,35 @@ class MultipleMovieClipAssociator(AssignerThread):
         
         movieclip_associations_length = len(self.movieclip_associations)
         
+        
         for index, movieclip_association in enumerate(self.movieclip_associations):
             assert not movieclip_association.skip
-            self.additional_descriptions["progress"] = "%s from %s" % (index+1, movieclip_associations_length)
-            if movieclip_association.movieclip is None:
-                checksum = None
-                if settings.get("hash_movieclips"):
-                    self.additional_descriptions["hash"] = "Calculating hash"
-                    checksum = self.calculate_checksum(movieclip_association.filepath)
-                    self.additional_descriptions["hash"] = ""
-                    
-                movieclip_association.movieclip = MovieClip(movieclip_association.filepath, checksum = checksum)
             
-
-            movieclip_association.movieclip.identifier = movieclip_association.get_associated_episode_score()[0].identifier
-            self.assign(movieclip_association)
+            filepath = movieclip_association.filepath
+            
+            if os.path.isdir(filepath):
+                self.filesystem_error.emit(filepath)
+            else:            
+                self.additional_descriptions["progress"] = "%s from %s" % (index+1, movieclip_associations_length)
+                
+                episode = movieclip_association.get_associated_episode_score()[0]
+                
+                if movieclip_association.movieclip is None:
+                    checksum = None
+                    if settings.get("hash_movieclips"):
+                        self.additional_descriptions["hash"] = "Calculating hash"
+                        checksum = self.calculate_checksum(filepath)
+                        self.additional_descriptions["hash"] = ""
+                        
+                    movieclip_association.movieclip = MovieClip(filepath, checksum = checksum)
+                movieclip_association.movieclip.identifier = episode.identifier
+                
+                if not os.path.isfile(filepath) or not settings.is_valid_file_extension(filepath):
+                    self.filesystem_error.emit(filepath)
+                elif not movieclips.check_unique(movieclip_association.movieclip, episode.get_identifier()):
+                    self.already_exists_in_another.emit()
+                else:
+                    self.assign(movieclip_association)
         
         self.finished.emit()
     
@@ -282,8 +293,6 @@ class MultipleMovieClipAssociator(AssignerThread):
                 c) The clip is not in the movieclip dict but already in the folder
                 d) The clip is not in the movieclip dict and not in the folder
         """
-        
-        self.waiting.emit()
         
         filename = os.path.basename(movieclip_association.filepath)
         episode, score = movieclip_association.get_associated_episode_score()
@@ -354,6 +363,11 @@ class ThumbnailGenerator(WorkerThread):
 
     def run(self):
         self.waiting.emit()
+        
+        
+        # Delete the already generated thumbnails of the movieclip
+        self.movieclip.delete_thumbnails()
+        
         
         # Get length of video clip
         length_command = 'ffmpeg -i "' + self.filepath + '"'
@@ -435,7 +449,7 @@ class SeriesSearchWorker(WorkerThread):
                 self.nothing_found.emit()
             else:                
                 self.results.emit(result)
-        except NoConnectionAvailable:
+        except NoInternetConnectionAvailable:
             self.no_connection_available.emit()
         
         self.finished.emit()

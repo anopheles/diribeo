@@ -3,7 +3,7 @@
 import datetime
 import tvrage.api
 
-from diribeomodel import Episode, NoConnectionAvailable, series_list, DownloadedSeries
+from diribeomodel import Episode, NoInternetConnectionAvailable, series_list, DownloadedSeries
 
 class LibraryWrapper(object):
     def __init__(self):
@@ -94,10 +94,13 @@ class TVRageWrapper(SourceWrapper):
     def search_movie(self, title):
         output = []
         
-        search = tvrage.api.search(str(title))
-        for showinfo in search:
-            output.append(DownloadedSeries(showinfo.showname, showinfo, {self.identifier : showinfo.showid}))
-        return output
+        try:
+            search = tvrage.api.search(str(title))
+            for showinfo in search:
+                output.append(DownloadedSeries(showinfo.showname, showinfo, {self.identifier : showinfo.showid}))
+            return output
+        except tvrage.api.NoInternetConnectionAvailable:
+            raise NoInternetConnectionAvailable
 
 
         
@@ -217,7 +220,7 @@ class IMDBWrapper(SourceWrapper):
                     output.append(DownloadedSeries(movie.get('smart long imdb canonical title'), movie, {self.identifier : movie.movieID}))
             return output
         except IMDbError:
-            raise NoConnectionAvailable
+            raise NoInternetConnectionAvailable
     
     def __get_rating(self, ratings, imdb_episode):
         try:
