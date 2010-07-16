@@ -2,7 +2,7 @@
 
 
 __author__ = 'David Kaufman'
-__version__ = '0.0.1dev'
+__version__ = '0.0.2dev'
 __license__ = 'pending'
 
 
