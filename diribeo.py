@@ -1264,7 +1264,7 @@ class AnimatedLabel(QtGui.QLabel):
     def __init__(self, image, imageCount_x, imageCount_y, parent=None):
         QtGui.QLabel.__init__(self, parent)
         
-        assert os.path.isfile(image), "Image is not a valid file: " + image
+        assert os.path.isfile(image), "Image is not a valid file: " + image + " " + os.getcwd()
     
         self.pixmaps = []
         self.currentPixmap = 1

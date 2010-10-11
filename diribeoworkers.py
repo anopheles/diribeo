@@ -357,6 +357,7 @@ class ThumbnailGenerator(WorkerThread):
 
 
     def get_duration_from_ffprobe_output(self, text):
+        print text
         matching = re.search(r'([0-9][0-9]):([0-9][0-9]):([0-9][0-9]).([0-9][0-9])', text)  
         return int(matching.group(1))*60*60 + int(matching.group(2))*60 + int(matching.group(3))
 
@@ -375,7 +376,7 @@ class ThumbnailGenerator(WorkerThread):
         try:       
             length_process = subprocess.Popen(length_command_args, stderr=subprocess.PIPE, stdout=subprocess.PIPE).communicate()
             duration = self.get_duration_from_ffprobe_output(length_process[1])
-        except (AttributeError, OSError):
+        except (AttributeError, OSError) as e:
             self.error_in_thumbnail_creation.emit()
             self.finished.emit()
             return
