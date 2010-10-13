@@ -3,7 +3,7 @@
 
 __author__ = 'David Kaufman'
 __version__ = '0.0.2dev'
-__license__ = 'pending'
+__license__ = 'MIT'
 
 
 import sys
@@ -118,9 +118,11 @@ class EpisodeTableModel(QtCore.QAbstractTableModel):
         self.series = series        
         self.episodes = self.series.episodes
         self.filled = False
-
+        
         self.row_lookup = lambda episode: ["", episode.title, episode.seen_it, episode.date, episode.plot]
         self.column_lookup = ["", "Title", "Seen it?", "Date", "Plot Summary"]
+        
+        
 
     def insert_episode(self, episode):
         self.episodes.append(episode)
@@ -132,17 +134,20 @@ class EpisodeTableModel(QtCore.QAbstractTableModel):
         return len(self.column_lookup)
 
     def data(self, index, role):
-        episode = self.episodes[index.row()]        
+        episode = self.episodes[index.row()]
+        
+        picture, title, seen_it, date, plot_summary = range(5)
+           
         if role == QtCore.Qt.DisplayRole:
-            if index.column() != 2:
+            if index.column() != seen_it:
                 return QtCore.QString(unicode(self.row_lookup(episode)[index.column()])) 
          
         elif role == QtCore.Qt.DecorationRole:
-            if index.column() == 0:
+            if index.column() == picture:
                 return diribeoutils.create_default_image(episode, additional_text = str(len(episode.get_thumbnails())))
         
         elif role == QtCore.Qt.CheckStateRole:
-            if index.column() == 2:
+            if index.column() == seen_it:
                 if episode.seen_it:
                     return Qt.Checked
                 else:
@@ -150,7 +155,7 @@ class EpisodeTableModel(QtCore.QAbstractTableModel):
             
         elif role == QtCore.Qt.BackgroundRole:
             if not episode.seen_it:
-                return diribeoutils.get_gradient_background(episode.descriptor[0])
+                return diribeoutils.get_gradient_background(episode.descriptor[0], saturation = 0.25)
             return diribeoutils.get_gradient_background(episode.descriptor[0], saturation = 0.5)
         
         elif role == QtCore.Qt.TextAlignmentRole:
@@ -490,10 +495,14 @@ class SeriesInformationControls(QtGui.QWidget):
     def __init__(self, parent = None):
         QtGui.QWidget.__init__(self, parent)
         header_layout = QtGui.QHBoxLayout()    
+        
         self.update_button = QtGui.QPushButton("Update")
         self.delete_button = QtGui.QPushButton("Delete")
+        self.goto_series_button = QtGui.QPushButton("Go to Series")
+        
         header_layout.addWidget(self.delete_button)
         header_layout.addWidget(self.update_button)
+        header_layout.addWidget(self.goto_series_button)
         self.setLayout(header_layout)
 
 class SeriesInformationWidget(QtGui.QStackedWidget):
@@ -525,6 +534,7 @@ class SeriesInformationWidget(QtGui.QStackedWidget):
         
         self.delete_button = self.title.content.delete_button
         self.update_button = self.title.content.update_button
+        self.goto_series_button = self.title.content.goto_series_button
         
         self.addWidget(self.main_widget)
         self.addWidget(self.nothing_to_see_here_widget)
@@ -549,6 +559,7 @@ class SeriesInformationWidget(QtGui.QStackedWidget):
             
         if isinstance(self.movie, Series):
             self.delete_button.setVisible(True)
+            self.goto_series_button.setVisible(False)
             self.plot.setVisible(False)
             self.rating.setVisible(False)
             self.seenit.setVisible(False)
@@ -558,6 +569,7 @@ class SeriesInformationWidget(QtGui.QStackedWidget):
             self.plot.setText(movie.plot)
             self.plot.setVisible(True)
             self.delete_button.setVisible(False)
+            self.goto_series_button.setVisible(True)
             self.seenit.setVisible(True)
             self.seenit.content.setChecked(self.movie.seen_it)
         
@@ -584,6 +596,14 @@ class SeriesInformationWidget(QtGui.QStackedWidget):
         except TypeError:
             pass
         self.update_button.clicked.connect(functools.partial(mainwindow.update_movie, movie))
+        
+        
+        try:
+            self.goto_series_button.clicked.disconnect()
+        except TypeError:
+            pass
+        self.goto_series_button.clicked.connect(functools.partial(mainwindow.load_series_info_from_episode, movie))
+        
                 
         self.movieclipwidget.content.load_movieclips(movie)   
         
@@ -614,6 +634,21 @@ class EpisodeTableWidget(QtGui.QTableView):
         self.horizontalHeader().setStretchLastSection(True)
         self.setShowGrid(False)
         self.setSelectionBehavior(QtGui.QTableView.SelectRows)
+        self.setAcceptDrops(True)
+
+
+    def dragEnterEvent(self, event):
+        event.acceptProposedAction()
+
+    def dragMoveEvent(self, event):
+        event.acceptProposedAction()
+
+    def dropEvent(self, event): 
+        filepaths = [url.toLocalFile() for url in event.mimeData().urls()] 
+        series = mainwindow.existing_series
+        dropIndex = self.indexAt(event.pos())   
+        mainwindow.add_movieclip_to_episode(filepaths[0], series[dropIndex.row()])
+        event.accept() 
 
     def setModel(self, model):
         try:
@@ -735,20 +770,16 @@ class MultipleAssociationTableModel(QtCore.QAbstractTableModel):
             elif  index.column() == 1:
                 message_text = self.movieclipassociation_messages[movieclip_association.message]
                 return QtCore.QString(message_text)
-            
             elif index.column() == 3:
                 try:
-                    return QtCore.QString(movieclip_association.episode_scores_list)
+                    return movieclip_association.episode_scores_list
                 except KeyError:
                     return QtCore.QVariant()
         
         if role == QtCore.Qt.ToolTipRole:
             if index.column() == 3:
-                try:
-                    episode, score = movieclip_association.get_associated_episode_score()
-                    return QtCore.QVariant(score)
-                except TypeError:
-                    pass
+                information = movieclip_association.episode_score_information
+                return QtCore.QString("Mean %s\nMedian: %s" % (information["mean"], information["median"]))
         
           
         elif role == QtCore.Qt.CheckStateRole:
@@ -797,13 +828,13 @@ class MultipleAssociationTableModel(QtCore.QAbstractTableModel):
             if value == Qt.Checked:
                 boolean_value = True            
             movieclip_association.skip = boolean_value 
-            self.dataChanged.emit(self.index(index.row(), 0), self.index(index.row(), 4))
+            self.dataChanged.emit(self.index(index.row(), 0), self.index(index.row(), 3))
             return True
         
         if role == Qt.EditRole:
             if index.column() == 3:
                 movieclip_association.episode_list_reference = value
-                self.dataChanged.emit(self.index(index.row(), 0), self.index(index.row(), 4))
+                self.dataChanged.emit(self.index(index.row(), 0), self.index(index.row(), 3))
                 return True
         return False
                           
@@ -849,7 +880,7 @@ class ComboBoxDelegate(QtGui.QStyledItemDelegate):
                 painter.fillRect(option.rect, index.model().data(index, role = QtCore.Qt.BackgroundRole))
                 if movieclip_association.message != movieclip_association.INVALID_FILE:
                     episode, score = movieclip_association.episode_scores_list[self.selections[index.row()]]
-                    painter.drawText(option.rect, QtCore.Qt.AlignVCenter, episode.get_normalized_name())
+                    painter.drawText(option.rect, QtCore.Qt.AlignVCenter, episode.get_normalized_name() + " Score: " + str(score))
                 
             except KeyError:
                 pass  
@@ -864,9 +895,8 @@ class ComboBoxDelegate(QtGui.QStyledItemDelegate):
             editor = QtGui.QComboBox(parent)
             
             try:
-                for index, episode_score in enumerate(movieclip_association.episode_scores_list):
-                    episode, score = episode_score
-                    editor.insertItem(index, episode.get_normalized_name())
+                for index, [episode, score] in enumerate(movieclip_association.episode_scores_list):
+                    editor.insertItem(index, episode.get_normalized_name() + " Score: " + str(score))
                     editor.setItemData(index, score, role = Qt.ToolTipRole)
                 return editor
             except KeyError:
@@ -1029,6 +1059,11 @@ class MainWindow(QtGui.QMainWindow):
         self.jobs.append(job)
         job.start()
     
+    def load_series_info_from_episode(self, episode):
+        assert isinstance(episode, Episode)
+        self.seriesinfo.load_information(episode.get_series())
+    
+    
     def start_multiple_association_wizard(self, movieclip_associations):
         wizard = MultipleAssociationWizard(movieclip_associations)
         wizard.show()
@@ -1128,7 +1163,7 @@ class MainWindow(QtGui.QMainWindow):
             existing_series = self.existing_series = selected_items[0].series                
 
             self.load_existing_series_into_table(existing_series)
-            load_info = existing_series        
+            series_load_info = existing_series        
     
             if len(indextrace) == 0:
                 #clicked on a series
@@ -1139,11 +1174,11 @@ class MainWindow(QtGui.QMainWindow):
             else:
                 #clicked on an episode            
                 goto_row = existing_series.accumulate_episode_count(index.parent().row()-1) + index.row()             
-                load_info = existing_series[goto_row]
+                series_load_info = existing_series[goto_row]
     
             goto_index = active_table_models[existing_series].index(goto_row, 0)
     
-            self.seriesinfo.load_information(load_info)
+            self.seriesinfo.load_information(series_load_info)
     
             self.tableview.scrollTo(goto_index, QtGui.QAbstractItemView.PositionAtTop)
 

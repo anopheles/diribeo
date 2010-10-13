@@ -220,12 +220,14 @@ class MultipleAssignerThread(WorkerThread):
                     episode_list = self.create_episode_list(self.series)
                     
                     episode_list_length = len(episode_list)
-                    counter = 0                    
+                    counter = 0
+                    total_score = 0
                     episode_score_list = []
                     for episode in episode_list:
                         score = min([self.dameraulevenshtein(title, filename) for title in episode.get_alternative_titles() + [episode.get_normalized_name()]])
                         episode_score_list.append([episode, score])
                         self.progress.emit(counter, episode_list_length)
+                        total_score += score 
                         counter += 1
                     
                     episode_score_list.sort(key = itemgetter(1))
@@ -233,10 +235,24 @@ class MultipleAssignerThread(WorkerThread):
                     movieclip_association.movieclip = movieclip
                     movieclip_association.episode_scores_list = episode_score_list
                     movieclip_association.message = movieclip_association.ASSOCIATION_GUESSED
+                    movieclip_association.episode_score_information["mean"] = float(total_score) / float(counter)
+                    movieclip_association.episode_score_information["median"] = self.get_median([score for episode, score in episode_score_list])
                     self.additional_descriptions["guess"] = ""
         
         self.result.emit(movieclip_associations)
         self.finished.emit()
+
+
+    def get_median(self, values):
+        ''' Calculates the median of a sorted list of numbers
+        '''
+        count = len(values)
+        if count % 2 == 1:
+            return values[(count+1)/2-1]
+        else:
+            lower = values[count/2-1]
+            upper = values[count/2]
+            return (float(lower + upper)) / 2
 
 
 class MultipleMovieClipAssociator(AssignerThread):

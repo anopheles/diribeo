@@ -82,6 +82,7 @@ class MovieClipAssociation(object):
         self.movieclip = None
         self.episode_scores_list = None
         self.episode_scores_list_reference = 0
+        self.episode_score_information = {"mean" : 0, "median" : 0}
         self.message = None
 
 

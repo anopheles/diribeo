@@ -7,7 +7,8 @@ from diribeomodel import Episode, NoInternetConnectionAvailable, series_list, Do
 
 class LibraryWrapper(object):
     def __init__(self):
-        self.implementations = dict([(implementation.identifier,implementation) for implementation in [IMDBWrapper()]])
+        implementation_list = [IMDBWrapper(), TVRageWrapper()]
+        self.implementations = dict([(implementation.identifier,implementation) for implementation in implementation_list])
     
     def get_episodes(self, identifier, implementation_identifier):
         return self.implementations[implementation_identifier].get_episodes(identifier)
