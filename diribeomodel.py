@@ -269,8 +269,12 @@ class Series(object):
         self.season = {}
     
     
-    def merge(self, old_series):
-        pass
+    def merge(self, new_series):
+        for index, new_episode in enumerate(new_series.episodes):
+            try:
+                self.episodes[index].merge(new_episode)
+            except IndexError:
+                self.episodes.append(new_episode)
     
     
     def __getitem__(self, key):
@@ -286,19 +290,16 @@ class Series(object):
 
     def get_seasons(self):
         ''' Returns a dictionary of seasons. Each season contains a list of episodes '''
-        try:
-            return self.seasons
-        except AttributeError:
-            self.seasons = {}
+        self.seasons = {}
 
-            for episode in self.episodes:
-                try:
-                    self.seasons[episode.descriptor[0]].append(episode)
-                except KeyError:
-                    self.seasons[episode.descriptor[0]] = []
-                    self.seasons[episode.descriptor[0]].append(episode)
+        for episode in self.episodes:
+            try:
+                self.seasons[episode.descriptor[0]].append(episode)
+            except KeyError:
+                self.seasons[episode.descriptor[0]] = []
+                self.seasons[episode.descriptor[0]].append(episode)
 
-            return self.seasons
+        return self.seasons
 
     def accumulate_episode_count(self, season):
         ''' This function adds all the preceeding episodes of the given season

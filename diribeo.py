@@ -164,6 +164,11 @@ class EpisodeTableModel(QtCore.QAbstractTableModel):
         return QtCore.QVariant()     
 
     
+    def insertRows(self, row, count, modelindex):
+        self.beginInsertRows(QtCore.QModelIndex(), row, count)
+        self.endInsertRows()
+        return True  
+    
     def setData(self, index, value, role = Qt.EditRole):
         if role == Qt.CheckStateRole:
             boolean_value = False
@@ -232,11 +237,10 @@ class LocalSearch(QtGui.QFrame):
         self.localseriestree.setHeaderLabels(["Series"])        
         self.localseriestree.setAnimated(True)
         self.localseriestree.setHeaderHidden(True)
+        self.toplevel_items = []
         self.initial_build_tree()
 
         localframelayout.addWidget(self.localseriestree)
-        
-        self.toplevel_items = []
 
 
     def sort_tree(self):
@@ -265,6 +269,7 @@ class LocalSearch(QtGui.QFrame):
     def initial_build_tree(self):
         for series in series_list:                 
             parent_series = QtGui.QTreeWidgetItem([series.title])
+            self.toplevel_items.append(parent_series)
             parent_series.series = series
             self.build_subtree(parent_series)
 
@@ -279,9 +284,11 @@ class LocalSearch(QtGui.QFrame):
                 child_episode.series = parent_series.series
         self.localseriestree.addTopLevelItem(parent_series)
 
+
     def update_tree(self, series):    
         for toplevelitem in self.toplevel_items:
-            if series == toplevelitem.series:                    
+            if series == toplevelitem.series:
+                toplevelitem.takeChildren()
                 self.build_subtree(toplevelitem)
 
 
@@ -1055,7 +1062,8 @@ class MainWindow(QtGui.QMainWindow):
      
     def update_movie(self, movie):
         job = MovieUpdater(movie)
-        job.finished.connect(functools.partial(self.seriesinfo.load_information,movie))
+        job.finished.connect(functools.partial(self.seriesinfo.load_information, movie))
+        job.finished.connect(functools.partial(self.rebuild_after_update, movie))
         self.jobs.append(job)
         job.start()
     
@@ -1117,6 +1125,15 @@ class MainWindow(QtGui.QMainWindow):
         self.jobs.append(job)
         job.start()
     
+
+    def rebuild_after_update(self, movie):
+        if isinstance(movie, Series):
+            self.local_search.update_tree(movie)
+            active_table_models[movie].insertRows(0, len(movie.episodes), None)
+        else:
+            active_table_models[movie.get_series()].insertRows(movie.number-1, 1, None)
+        
+        
     def delete_series(self):                
         series = self.existing_series       
         
@@ -1130,7 +1147,7 @@ class MainWindow(QtGui.QMainWindow):
                 if series == available_series:
                     del series_list[i]       
                     
-            # Delete the series's tablemodel
+            # Delete the series's table model
             del active_table_models[series] 
             
             self.tableview.setModel(None)

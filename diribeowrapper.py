@@ -3,7 +3,7 @@
 import datetime
 import tvrage.api
 
-from diribeomodel import Episode, NoInternetConnectionAvailable, series_list, DownloadedSeries
+from diribeomodel import Episode, Series, NoInternetConnectionAvailable, series_list, DownloadedSeries
 
 class LibraryWrapper(object):
     def __init__(self):
@@ -58,7 +58,17 @@ class SourceWrapper(object):
     def search_movie(self, title):
         raise NotImplementedError
     
+    
+    def update_movie(self, movie):
+        if isinstance(movie, Series):
+            self.update_series(movie)
+        else:
+            self.update_episode(movie)
+    
     def update_episode(self, episode):
+        raise NotImplementedError
+    
+    def update_series(self, series):
         raise NotImplementedError
 
 class TVRageWrapper(SourceWrapper):
@@ -103,7 +113,12 @@ class TVRageWrapper(SourceWrapper):
         except tvrage.api.NoInternetConnectionAvailable:
             raise NoInternetConnectionAvailable
 
-
+    def update_episode(self, episode):
+        pass
+    
+    def update_series(self, series):
+        pass
+    
         
 class IMDBWrapper(SourceWrapper):
     def __init__(self):
@@ -166,10 +181,18 @@ class IMDBWrapper(SourceWrapper):
         return datetime.date(year, month, day)
 
 
-    def update_movie(self, old_movie):
-        imdb_movie = self.ia.get_movie(old_movie.get_identifier()[1])
-        new_episode = self.__imdb_episode_to_episode(imdb_movie)
-        old_movie.merge(new_episode)
+    def update_series(self, old_series):
+        imdb_series = self.ia.get_movie(old_series.get_identifier()[1])
+        new_series = Series(imdb_series.get('title'), identifier = old_series.identifier)
+        
+        for episode, episode_count in self.get_episodes(imdb_series):
+            new_series.episodes.append(episode) 
+        old_series.merge(new_series)
+    
+    def update_episode(self, old_episode):
+        imdb_episode = self.ia.get_movie(old_episode.get_identifier()[1])
+        new_episode = self.__imdb_episode_to_episode(imdb_episode)
+        old_episode.merge(new_episode)
         
     
     def __imdb_episode_to_episode(self, imdb_episode, imdb_series = None, ratings = None, counter = None):
