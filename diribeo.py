@@ -741,7 +741,8 @@ class MultipleAssociationWizard(QtGui.QWizard):
     
     def __init__(self, movieclip_associations, parent = None):
         QtGui.QWizard.__init__(self, parent)    
-        self.movieclip_associations = movieclip_associations     
+        self.movieclip_associations = movieclip_associations
+        diribeoutils.resize_to_percentage(self, 50) 
         self.addPage(MultipleAssociationTable(movieclip_associations))
         self.accepted.connect(self.wizard_complete)
     
@@ -1046,7 +1047,7 @@ class MainWindow(QtGui.QMainWindow):
         self.tableview.setModel(None)
         
         self.setWindowTitle("Diribeo")
-        self.resize_to_percentage(75)
+        diribeoutils.resize_to_percentage(self, 75)
         self.center()
 
 
@@ -1160,10 +1161,6 @@ class MainWindow(QtGui.QMainWindow):
         size =  self.geometry()
         self.move((screen.width()-size.width())/2, (screen.height()-size.height())/2)
 
-
-    def resize_to_percentage(self, percentage):
-        screen = QtGui.QDesktopWidget().screenGeometry()
-        self.resize(screen.width()*percentage/100.0, screen.height()*percentage/100.0)
 
     def load_into_local_table(self):
         index = self.local_search.localseriestree.selectionModel().currentIndex()

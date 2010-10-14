@@ -3,6 +3,13 @@
 from PyQt4 import QtGui, QtCore
 from PyQt4.QtCore import Qt
 
+
+
+
+def resize_to_percentage(qwidget, percentage):
+    screen = QtGui.QDesktopWidget().screenGeometry()
+    qwidget.resize(screen.width()*percentage/100.0, screen.height()*percentage/100.0)
+
 def create_default_image(episode, additional_text = ""):
     multiplikator = 6
     width = 16 * multiplikator
