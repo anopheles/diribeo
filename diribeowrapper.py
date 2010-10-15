@@ -153,7 +153,7 @@ class IMDBWrapper(SourceWrapper):
         self.ia.update(imdb_series, 'episodes rating')        
         ratings = imdb_series.get('episodes rating')        
 
-        counter = 1
+        counter = 0
         for seasonnumber in seasons.iterkeys():
             if type(seasonnumber) == type(1):
                 for imdb_episode_number in seasons[seasonnumber]:  
@@ -212,6 +212,10 @@ class IMDBWrapper(SourceWrapper):
             plot = imdb_episode.get('plot')
             if isinstance(plot, list):
                 plot = "".join(plot)
+            
+            if plot is None:
+                plot = ""
+            
             
             episode = Episode(title = imdb_episode.get('title'), 
                               descriptor = [imdb_episode.get('season'), imdb_episode.get('episode')], 

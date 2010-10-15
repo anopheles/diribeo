@@ -144,7 +144,7 @@ class EpisodeTableModel(QtCore.QAbstractTableModel):
          
         elif role == QtCore.Qt.DecorationRole:
             if index.column() == picture:
-                return diribeoutils.create_default_image(episode, additional_text = str(len(episode.get_thumbnails())))
+                return diribeoutils.create_default_image(episode, additional_text = str(episode.number))
         
         elif role == QtCore.Qt.CheckStateRole:
             if index.column() == seen_it:
@@ -163,11 +163,12 @@ class EpisodeTableModel(QtCore.QAbstractTableModel):
 
         return QtCore.QVariant()     
 
+
+    def refresh_table(self):
+        self.dataChanged.emit(self.index(0, 0), self.index(len(self.episodes)-1, len(self.column_lookup)-1))
     
-    def insertRows(self, row, count, modelindex):
-        self.beginInsertRows(QtCore.QModelIndex(), row, count)
-        self.endInsertRows()
-        return True  
+    def refresh_row(self, row):
+        self.dataChanged.emit(self.index(row, 0), self.index(row, len(self.column_lookup)-1))
     
     def setData(self, index, value, role = Qt.EditRole):
         if role == Qt.CheckStateRole:
@@ -751,8 +752,6 @@ class MultipleAssociationWizard(QtGui.QWizard):
         mainwindow.add_movieclip_associations_to_episodes(filtered_movieclip_associations)
 
 
-
-
 class MultipleAssociationTableModel(QtCore.QAbstractTableModel):
     def __init__(self, movieclip_associations, parent=None):
         QtCore.QAbstractTableModel.__init__(self, parent)
@@ -1130,10 +1129,9 @@ class MainWindow(QtGui.QMainWindow):
     def rebuild_after_update(self, movie):
         if isinstance(movie, Series):
             self.local_search.update_tree(movie)
-            active_table_models[movie].insertRows(0, len(movie.episodes), None)
+            active_table_models[movie].refresh_table()
         else:
-            active_table_models[movie.get_series()].insertRows(movie.number-1, 1, None)
-        
+            active_table_models[movie.get_series()].refresh_row(movie.number-1)
         
     def delete_series(self):                
         series = self.existing_series       

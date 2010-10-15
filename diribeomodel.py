@@ -8,6 +8,11 @@ import os
 from PyQt4 import QtCore
 
 
+class MergePolicy(object):  
+    PASS = 0
+    OVERWRITE = 1
+    MORE_INFO = 3
+
 class MovieClip(object):
     def __init__(self, filepath, identifier = None, filesize = None, checksum = None, thumbnails = None):
         self.filepath = filepath
@@ -252,7 +257,6 @@ class Settings(object):
 
 class Series(object):
     def __init__(self, title, identifier = None, episodes = None, rating = None, director = "", genre = "", date = ""):
-        self.title = title
 
         if episodes == None:
             episodes = []
@@ -261,20 +265,13 @@ class Series(object):
             identifier = {}
 
         self.episodes = episodes
+        self.title = title
         self.rating = rating
         self.identifier = identifier
         self.director = director
         self.genre = genre
         self.date = date
         self.season = {}
-    
-    
-    def merge(self, new_series):
-        for index, new_episode in enumerate(new_series.episodes):
-            try:
-                self.episodes[index].merge(new_episode)
-            except IndexError:
-                self.episodes.append(new_episode)
     
     
     def __getitem__(self, key):
@@ -288,6 +285,26 @@ class Series(object):
     def __repr__(self):
         return "S(" + self.title + " E: " + str(len(self.episodes)) + ")"
 
+
+    def merge(self, new_series, merge_policy = MergePolicy.MORE_INFO):        
+        if merge_policy == MergePolicy.MORE_INFO:
+            pass
+        elif merge_policy == MergePolicy.PASS:
+            pass
+        elif merge_policy == MergePolicy.OVERWRITE:
+            self.title = new_series.title
+            self.rating = new_series.rating
+            self.identifier = new_series.identifier
+            self.director = new_series.director
+            self.genre = new_series.genre
+            self.date = new_series.date
+        
+        for index, new_episode in enumerate(new_series.episodes):
+            try:
+                self.episodes[index].merge(new_episode, merge_policy = merge_policy)
+            except IndexError:
+                self.episodes.append(new_episode)
+    
     def get_seasons(self):
         ''' Returns a dictionary of seasons. Each season contains a list of episodes '''
         self.seasons = {}
@@ -392,8 +409,22 @@ class Episode(object):
     def get_implementation_identifier(self):
         return self.identifier.items()[0][0]
     
-    def merge(self, new_episode):
-        self.plot = new_episode.plot
+    def merge(self, new_episode, merge_policy = MergePolicy.MORE_INFO):
+        
+        # Don't overwrite series, identifier and the number, since the new episode might not have this info           
+        if merge_policy == MergePolicy.MORE_INFO:
+            if len(self.plot) < len(new_episode.plot):
+                self.plot = new_episode.plot
+        elif merge_policy == MergePolicy.OVERWRITE: 
+            self.title = new_episode.title
+            self.descriptor = new_episode.descriptor
+            self.plot = new_episode.plot
+            self.date = new_episode.date
+            self.rating = new_episode.rating
+            self.director = new_episode.director
+            self.runtime = new_episode.runtime
+            self.genre = new_episode.genre
+            self.seen_it = new_episode.seen_it
     
     def get_ratings(self):
         return_text = ""
@@ -403,6 +434,7 @@ class Episode(object):
             except TypeError:
                 pass
         return return_text 
+
 
 class MovieClipManager(object):
     def __init__(self, dictionary = None):
