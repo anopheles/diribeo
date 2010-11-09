@@ -223,6 +223,10 @@ class MultipleAssignerThread(WorkerThread):
                     counter = 0
                     total_score = 0
                     episode_score_list = []
+                    import multiprocessing
+                    p = multiprocessing.Pool()
+                    #result = p.map(lambda x: x**2, range(20))
+                    #print result
                     for episode in episode_list:
                         score = min([self.dameraulevenshtein(title, filename) for title in episode.get_alternative_titles() + [episode.get_normalized_name()]])
                         episode_score_list.append([episode, score])
@@ -295,7 +299,7 @@ class MultipleMovieClipAssociator(AssignerThread):
                 
                 if not os.path.isfile(filepath) or not settings.is_valid_file_extension(filepath):
                     self.filesystem_error.emit(filepath)
-                elif not movieclips.check_unique(movieclip_association.movieclip, episode.get_identifier()):
+                elif settings.get("hash_movieclips") and not movieclips.check_unique(movieclip_association.movieclip, episode.get_identifier()):
                     self.already_exists_in_another.emit()
                 else:
                     self.assign(movieclip_association)

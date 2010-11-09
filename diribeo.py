@@ -1003,6 +1003,81 @@ class WaitingWidget(QtGui.QWidget):
         self.setLayout(hbox)
     
 
+class SettingsEditor(QtGui.QDialog):
+    def __init__(self, parent = None):
+        QtGui.QDialog.__init__(self, parent)
+            
+        diribeoutils.resize_to_percentage(self, 50)
+        self.inner_layout = QtGui.QVBoxLayout()
+        self.form_layout = QtGui.QFormLayout()
+        self.main_layout = QtGui.QVBoxLayout()
+        self.header_layout = QtGui.QHBoxLayout()
+        self.button_layout = QtGui.QHBoxLayout()        
+        self.setLayout(self.main_layout)
+        
+        self.setWindowTitle('Settings')
+        
+        self.settings_groupbox = QtGui.QGroupBox("Settings")
+        self.settings_groupbox.setLayout(self.form_layout)
+        
+        self.copy_associated_movieclips_checkbox = QtGui.QCheckBox()
+        self.copy_associated_movieclips_checkbox.setChecked(settings.get("copy_associated_movieclips"))
+        
+        self.automatic_thumbnail_creation_checkbox = QtGui.QCheckBox()
+        self.automatic_thumbnail_creation_checkbox.setChecked(settings.get("automatic_thumbnail_creation"))
+        
+        self.show_all_movieclips_checkbox = QtGui.QCheckBox()
+        self.show_all_movieclips_checkbox.setChecked(settings.get("show_all_movieclips"))
+        
+        self.normalize_names_checkbox = QtGui.QCheckBox()
+        self.normalize_names_checkbox.setChecked(settings.get("normalize_names"))
+        
+        self.hash_movieclips_checkbox = QtGui.QCheckBox()
+        self.hash_movieclips_checkbox.setChecked(settings.get("hash_movieclips"))
+        
+        
+        self.number_of_thumbnails_edit = QtGui.QLineEdit(str(settings.get("number_of_thumbnails")))
+        self.default_settings_button = QtGui.QPushButton('Reset to default settings', self)
+        
+        self.deployment_folder_edit = QtGui.QLineEdit(str(settings.get("deployment_folder")))
+        
+        self.okay_button = QtGui.QPushButton("Save settings")
+        self.okay_button.pressed.connect(self.save_settings)
+        self.cancel_button = QtGui.QPushButton("Discard changes")
+        self.cancel_button.pressed.connect(self.hide)
+        
+        self.button_layout.addWidget(self.okay_button)
+        self.button_layout.addWidget(self.cancel_button)
+        self.button_layout.addStretch(1)
+        
+        self.form_layout.addRow("Copy assoicated movieclips", self.copy_associated_movieclips_checkbox)
+        self.form_layout.addRow("Automatically create thumbnails", self.automatic_thumbnail_creation_checkbox)
+        self.form_layout.addRow("Show all movieclips", self.show_all_movieclips_checkbox)
+        self.form_layout.addRow("Normalize names", self.normalize_names_checkbox)
+        self.form_layout.addRow("Hash movieclips", self.hash_movieclips_checkbox)
+        self.form_layout.addRow("Number of thumbnails created", self.number_of_thumbnails_edit)
+        self.form_layout.addRow("Deployment folder", self.deployment_folder_edit)
+        
+        self.main_layout.addWidget(self.settings_groupbox)
+        self.main_layout.addWidget(self.default_settings_button)
+        self.main_layout.addLayout(self.button_layout)        
+        
+    def save_settings(self):
+        #TODO
+        settings["copy_associated_movieclips"] = self.copy_associated_movieclips_checkbox.checkState()
+        settings["automatic_thumbnail_creation"] = self.automatic_thumbnail_creation_checkbox.checkState()
+        settings["show_all_movieclips"] = self.show_all_movieclips_checkbox.checkState()
+        settings["normalize_names"] = self.normalize_names_checkbox.checkState()
+        settings["hash_movieclips"] = self.hash_movieclips_checkbox.checkState()
+        try:
+            settings["number_of_thumbnails"] = int(self.number_of_thumbnails_edit.text())
+        except ValueError:
+            settings["number_of_thumbnails"] = 8
+        
+        settings["deployment_folder"] = str(self.deployment_folder_edit.text())
+        
+        self.hide()
+
 class MainWindow(QtGui.QMainWindow):
     def __init__(self, parent = None):
         QtGui.QMainWindow.__init__(self, parent)
@@ -1034,6 +1109,13 @@ class MainWindow(QtGui.QMainWindow):
         series_info_dock = SeriesInformationDock()
         self.seriesinfo =  series_info_dock.seriesinfo
         
+        menubar = self.menuBar()
+        file = menubar.addMenu('&Settings')
+        change_settings = QtGui.QAction(QtGui.QIcon(), 'Change Settings', self)
+        change_settings.triggered.connect(self.start_settings_editor)
+        file.addAction(change_settings)
+        
+        
         # Manage the docks
         self.addDockWidget(Qt.LeftDockWidgetArea, local_search_dock)                            
         self.addDockWidget(Qt.RightDockWidgetArea, series_info_dock)
@@ -1052,7 +1134,13 @@ class MainWindow(QtGui.QMainWindow):
 
     def closeEvent(self, event):
         self.hide()
-        diribeomodel.save_configs()
+        settings.save_configs()
+    
+    
+    def start_settings_editor(self):
+        settings = SettingsEditor()
+        settings.show()
+        settings.exec_()
     
     def start_series_adder_wizard(self):
         wizard = SeriesAdderWizard(self.jobs)

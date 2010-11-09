@@ -4,14 +4,14 @@ import datetime
 import json
 import shutil
 import os
+import sys
 
 from PyQt4 import QtCore
 
 
 class MergePolicy(object):  
-    PASS = 0
-    OVERWRITE = 1
-    MORE_INFO = 3
+    OVERWRITE = 0
+    MORE_INFO = 1
 
 class MovieClip(object):
     def __init__(self, filepath, identifier = None, filesize = None, checksum = None, thumbnails = None):
@@ -154,32 +154,29 @@ class Settings(object):
         
         if settings == None:
             self.settings = {"copy_associated_movieclips" : True, 
-                             "deployment_folder" : os.path.join(self.get_user_dir(),"Series"),
                              "automatic_thumbnail_creation" : False,
                              "show_all_movieclips" : True,
                              "normalize_names" : True,
-                             "thumbnail_folder" : os.path.join(self.get_user_dir(),"Series",".thumbnails"),
-                             "hash_movieclips" : True,
-                             "number_of_thumbnails" : 8}
+                             "hash_movieclips" : False,
+                             "number_of_thumbnails" : 8,
+                             "deployment_folder" : self.get_deployment_folder()}
         else:
             self.settings = settings      
 
 
         self.valid_extensions = ("mkv", "avi", "mpgeg", "mpg", "wmv", "mp4", "mov")
 
+    def __getitem__(self, key):
+        self.get(key)
+        
+    def __setitem__(self, key, value):
+        self.settings[key] = value
+
     def get(self, attribute_name):
         try:
             return self.settings[attribute_name]
         except KeyError:
             pass
-
-    def get_thumbnail_folder(self):        
-        thumbnail_folder = os.path.join(os.getcwd(), self.settings["thumbnail_folder"])
-        if not os.path.exists(thumbnail_folder):
-            os.makedirs(thumbnail_folder)
-        
-        return thumbnail_folder
-
 
     def get_normalized_filename(self, filename, episode):
         name, ext = os.path.splitext(filename)
@@ -208,6 +205,28 @@ class Settings(object):
                 index += 1
         return filename
             
+    def get_deployment_folder(self):
+        deployment_folder = os.path.join(self.get_user_dir(), "Series")
+        if not os.path.exists(deployment_folder):
+            os.makedirs(deployment_folder)        
+        return deployment_folder
+    
+    def get_thumbnail_folder(self):        
+        thumbnail_folder = os.path.join(self.get_settings_dir(), "thumbnails")
+        if not os.path.exists(thumbnail_folder):
+            os.makedirs(thumbnail_folder)        
+        return thumbnail_folder
+    
+    def get_settings_dir(self, platform=sys.platform, appname="Diribeo"):        
+        dirs = {"darwin": os.path.expandvars("$HOME/Library/Preferences"),
+        "linux2": os.getenv("XDG_CONFIG_HOME", os.path.expandvars("$HOME/.config")),
+        "win32": os.getenv("appdata")}
+            
+        setting_directory = os.path.join(dirs[platform].decode(sys.getfilesystemencoding()), appname)   
+                
+        if not os.path.exists(setting_directory):
+            os.makedirs(setting_directory)                    
+        return setting_directory
 
     def get_user_dir(self):
         ''' Returns the user/Home directory of the user running this application. '''     
@@ -253,7 +272,49 @@ class Settings(object):
             shutil.copyfile(filepath, destination)
         else:
             shutil.move(filepath, destination)
-
+    
+    def save_configs(self):
+        self.save_movieclips()
+        self.save_series()
+        self.save_settings()
+    
+    
+    def load_series(self):
+        return self.load_file("series.json", [])    
+        
+    def load_movieclips(self):
+        return self.load_file("movieclips.json", MovieClipManager())
+    
+    def save_series(self):
+        self.save_file("series.json", series_list)
+    
+    def save_movieclips(self):
+        self.save_file("movieclips.json", movieclips)
+    
+    def load_settings(self):
+        return self.load_file("settings.json", Settings())
+    
+    def save_settings(self):
+        self.save_file("settings.json", settings)
+    
+    
+    def save_file(self, filename, contents):
+        with open(os.path.join(self.get_settings_dir(), filename), "w") as f:
+            f.write(json.dumps(contents, sort_keys = True, indent = 4, cls = SeriesOrganizerEncoder, encoding = "utf-8"))
+        f.close()     
+    
+    def load_file(self, filename, default_value): 
+        filepath = os.path.join(self.get_settings_dir(), filename)  
+        if os.path.exists(filepath):
+            with open(filepath, "r") as f:
+                filecontents = f.read()
+            f.close() 
+            try:
+                return json.loads(filecontents, object_hook = SeriesOrganizerDecoder, encoding = "utf-8")
+            except ValueError: 
+                return default_value
+        
+        return default_value 
 
 class Series(object):
     def __init__(self, title, identifier = None, episodes = None, rating = None, director = "", genre = "", date = ""):
@@ -288,8 +349,6 @@ class Series(object):
 
     def merge(self, new_series, merge_policy = MergePolicy.MORE_INFO):        
         if merge_policy == MergePolicy.MORE_INFO:
-            pass
-        elif merge_policy == MergePolicy.PASS:
             pass
         elif merge_policy == MergePolicy.OVERWRITE:
             self.title = new_series.title
@@ -482,7 +541,9 @@ class MovieClipManager(object):
                 
 
     def check_unique(self, movieclip, identifier):
-        ''' Checks if the given movie clip hasn't been assigned to a different epsiode '''
+        ''' Checks if the given movie clip hasn't been assigned to a different episode
+            Returns true if unique false otherwise
+        '''
         
         implementation, key = identifier
         for another_key in self.dictionary[implementation]:
@@ -506,49 +567,8 @@ class MovieClipManager(object):
     def __iter__(self):
         return self.dictionary.iteritems()
 
-def save_configs():
-    save_movieclips()
-    save_series()
-    save_settings()
 
-
-def load_series():
-    return load_file("series.json", [])    
-    
-def load_movieclips():
-    return load_file("movieclips.json", MovieClipManager())
-
-def save_series():
-    save_file("series.json", series_list)
-
-def save_movieclips():
-    save_file("movieclips.json", movieclips)
-
-def load_settings():
-    return load_file("settings.json", Settings())
-
-def save_settings():
-    save_file("settings.json", settings)
-
-
-def save_file(filename, contents):
-    with open(filename, "w") as f:
-        f.write(json.dumps(contents, sort_keys = True, indent = 4, cls = SeriesOrganizerEncoder, encoding = "utf-8"))
-    f.close()     
-
-def load_file(filename, default_value):   
-    if os.path.exists(filename):
-        with open(filename, "r") as f:
-            filecontents = f.read()
-        f.close() 
-        try:
-            return json.loads(filecontents, object_hook = SeriesOrganizerDecoder, encoding = "utf-8")
-        except ValueError: 
-            return default_value
-    
-    return default_value  
-
-
-settings = load_settings()
-series_list = load_series()
-movieclips = load_movieclips()
+dummy_settings = Settings().load_settings()
+settings = dummy_settings.load_settings()
+series_list = dummy_settings.load_series()
+movieclips = dummy_settings.load_movieclips()
