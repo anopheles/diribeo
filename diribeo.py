@@ -344,7 +344,7 @@ class MovieClipInformationWidget(QtGui.QFrame):
                     pixmap = pixmap.scaledToWidth(100)
                     
                     temp_label.setPixmap(pixmap)
-                    temp_label.setToolTip("<img src=':"+ filepath +"'>")
+                    temp_label.setToolTip("<img src= '"+ filepath +"'>")
                     self.thumbnail_gridlayout.addWidget(temp_label, index/2, index % 2)
         
         self.control_layout.addWidget(self.remove_button)

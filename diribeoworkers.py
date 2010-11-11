@@ -414,7 +414,7 @@ class ThumbnailGenerator(WorkerThread):
             destination = os.path.join(settings.get_thumbnail_folder(), unique_identifier + "-" + "%03d" % index + ".png") 
             command = 'ffmpeg -ss ' + str(index*interval) + ' -i "'+ self.filepath + '" -vframes 1 -vcodec png -f image2 "' + destination + '"'           
             args = shlex.split(str(command)) # does not support unicode input
-            proc = subprocess.Popen(args, shell = True, stdout=subprocess.PIPE)
+            proc = subprocess.Popen(args, stdout=subprocess.PIPE)
             proc.wait()
             self.progress.emit(index, self.number_of_thumbnails)  
                   
