@@ -5,9 +5,13 @@
   <link rel="stylesheet" type="text/css" href="/stylesheets/styles.css"/>
 </head>
 <body>
-	<header>
-		<a href="/"><img width=300 src="/images/diribeo_logo.png"></a>
-	</header>
+	
+	<section id="logo">
+		<header>
+			<a href="/"><img width=300 src="/images/diribeo_logo.png"></a>
+		</header>
+	</section>
+	
 	<nav>
     <ul>  
 		<li><a href="overview">Overview</a></li>
@@ -23,7 +27,7 @@
 			<h2>Diribeo</h2> 
 			<p>Diribeo is a simple but powerful utility for organizing your series collection.</p>
 			<br>
-		<a href="http://www.rapidshare.com/" class="button green">Download Version 0.0.2dev win32</a>
+		<a href="http://rapidshare.com/files/431038034/diribeo_win32.zip" class="button green">Download Version 0.0.2dev win32</a>
 		</header> 
 		<img src="/images/intro_flower.png" alt="intro" /> 
 	</section> 
