@@ -223,10 +223,6 @@ class MultipleAssignerThread(WorkerThread):
                     counter = 0
                     total_score = 0
                     episode_score_list = []
-                    import multiprocessing
-                    p = multiprocessing.Pool()
-                    #result = p.map(lambda x: x**2, range(20))
-                    #print result
                     for episode in episode_list:
                         score = min([self.dameraulevenshtein(title, filename) for title in episode.get_alternative_titles() + [episode.get_normalized_name()]])
                         episode_score_list.append([episode, score])
@@ -377,7 +373,6 @@ class ThumbnailGenerator(WorkerThread):
 
 
     def get_duration_from_ffprobe_output(self, text):
-        print text
         matching = re.search(r'([0-9][0-9]):([0-9][0-9]):([0-9][0-9]).([0-9][0-9])', text)  
         return int(matching.group(1))*60*60 + int(matching.group(2))*60 + int(matching.group(3))
 

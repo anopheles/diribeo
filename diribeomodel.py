@@ -279,6 +279,10 @@ class Settings(object):
         else:
             shutil.move(filepath, destination)
     
+    
+    def reset(self):
+        self.__init__()
+    
     def save_configs(self):
         self.save_movieclips()
         self.save_series()

@@ -1,11 +1,16 @@
 import bottle
 from bottle import route, run
 
-bottle.debug(True)
+bottle.debug(False)
 
 from bottle import route, view, template
 from google.appengine.ext.webapp import util 
 
+
+
+@route("/update")
+def update():
+	print template("update")
 
 @route("/contribute")
 def contribute():

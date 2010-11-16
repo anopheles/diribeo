@@ -14,12 +14,15 @@ import logging as log
 import subprocess
 import functools
 import collections
+import urllib2
+
 import diribeomessageboxes
 import diribeomodel
 import diribeowrapper
 import diribeoutils
 
-from diribeomodel import Series, Episode, MovieClipAssociation
+
+from diribeomodel import Series, Episode, MovieClipAssociation, Settings
 from diribeoworkers import SeriesSearchWorker, ModelFiller, MultipleMovieClipAssociator, ThumbnailGenerator, MultipleAssignerThread, MovieUpdater
 
 
@@ -984,17 +987,12 @@ class WaitingWidget(QtGui.QWidget):
         hbox = QtGui.QHBoxLayout()
         vbox = QtGui.QVBoxLayout()
         self.setAutoFillBackground(True)
-        #self.setStyleSheet("background-color: white")
         
-        #palette = self.palette()
-        #palette.setColor(QtGui.QPalette.Window, Qt.white)
-        #self.setPalette(palette)
         vbox.setSpacing(3)
         vbox.addStretch(10)
         vbox.addWidget(AnimatedLabel("images/process-working.png", 8, 4))
         vbox.addWidget(QtGui.QLabel("Downloading ..."))
         vbox.addStretch(20)
-        #self.setLayout(vbox)
         
         hbox.setSpacing(3)
         hbox.addStretch(20)
@@ -1002,7 +1000,31 @@ class WaitingWidget(QtGui.QWidget):
         hbox.addStretch(20)
         
         self.setLayout(hbox)
-    
+ 
+class About(QtGui.QDialog):
+    def __init__(self, parent = None):
+        QtGui.QDialog.__init__(self, parent) 
+        diribeoutils.resize_to_percentage(self, 25) 
+        self.setWindowTitle('About') 
+        
+        self.vboxlayout = QtGui.QVBoxLayout()
+        self.setLayout(self.vboxlayout)
+        diribeo_pixmap = QtGui.QPixmap("images/diribeo_logo.png")
+        self.diribeo_logo = QtGui.QLabel()
+        self.diribeo_logo.setPixmap(diribeo_pixmap)
+        
+        self.vboxlayout.addWidget(self.diribeo_logo)
+        self.vboxlayout.addWidget(QtGui.QLabel("Diribeo is an open source application. To get more information about it check out http://www.diribeo.de"))
+        
+        self.vboxlayout.addWidget(self.get_version_update())
+
+    def get_version_update(self):
+        # Acces web and compare versions
+        #urllib2.urlopen("http://localhost/update")
+        
+        # TODO Every version is currently the most recent version!
+        return QtGui.QPushButton(QtGui.QIcon("images/emblem-favorite.png"), "This version (%s) is up-to-date!" % __version__)
+
 
 class SourceSelectionSettings(QtGui.QWidget):
     def __init__(self, parent = None):
@@ -1078,6 +1100,7 @@ class GeneralSettings(QtGui.QWidget):
         self.form_layout.addRow("Deployment folder", self.deployment_folder_edit)
 
 
+
 class SettingsEditor(QtGui.QDialog):
     def __init__(self, parent = None):
         QtGui.QDialog.__init__(self, parent)
@@ -1110,7 +1133,7 @@ class SettingsEditor(QtGui.QDialog):
         # Build chooser which is at the left side of the window
         self.chooser_toolbar = QtGui.QToolBar()
         self.chooser_toolbar.setOrientation(Qt.Vertical)
-        self.chooser_toolbar.setIconSize(QtCore.QSize(64, 64))
+        self.chooser_toolbar.setIconSize(QtCore.QSize(128, 128))
         
         # Create buttons
         
@@ -1146,6 +1169,7 @@ class SettingsEditor(QtGui.QDialog):
         self.chooser_toolbar.addWidget(statistic_settings_button)
         
         self.default_settings_button = QtGui.QPushButton('Reset to default settings', self)
+        self.default_settings_button.clicked.connect(self.reset_settings)
         
         self.view_layout.addWidget(self.chooser_toolbar)
         self.view_layout.addWidget(self.stacked_widget)
@@ -1155,15 +1179,18 @@ class SettingsEditor(QtGui.QDialog):
         self.cancel_button = QtGui.QPushButton("Discard changes")
         self.cancel_button.pressed.connect(self.hide)
         
+        self.button_layout.addStretch(1)
         self.button_layout.addWidget(self.okay_button)
         self.button_layout.addWidget(self.cancel_button)
-        self.button_layout.addStretch(1)
         
         self.main_layout.addLayout(self.view_layout)
         self.main_layout.addWidget(self.default_settings_button)
         self.main_layout.addLayout(self.button_layout)   
         
-             
+
+    def reset_settings(self):
+        settings.reset()
+        self.hide()
         
     def save_settings(self):
         # Handle General Settings
@@ -1182,9 +1209,7 @@ class SettingsEditor(QtGui.QDialog):
         
         # Handle Source Settings
         checkbox_dict = self.sources_settings_groupbox.implementation_checkboxes
-        settings.settings["sources"] = dict([[x, bool(checkbox_dict[x].checkState())] for x in  checkbox_dict])
-        print settings.settings["sources"]
-        
+        settings.settings["sources"] = dict([[implementation, bool(checkbox_dict[implementation].checkState())] for implementation in  checkbox_dict])
         
         self.hide()
 
@@ -1219,12 +1244,7 @@ class MainWindow(QtGui.QMainWindow):
         series_info_dock = SeriesInformationDock()
         self.seriesinfo =  series_info_dock.seriesinfo
         
-        menubar = self.menuBar()
-        file = menubar.addMenu('&Settings')
-        change_settings = QtGui.QAction(QtGui.QIcon(), 'Change Settings', self)
-        change_settings.triggered.connect(self.start_settings_editor)
-        file.addAction(change_settings)
-        
+        self.build_menu_bar()
         
         # Manage the docks
         self.addDockWidget(Qt.LeftDockWidgetArea, local_search_dock)                            
@@ -1241,11 +1261,28 @@ class MainWindow(QtGui.QMainWindow):
         diribeoutils.resize_to_percentage(self, 75)
         self.center()
 
+    def build_menu_bar(self):
+        menubar = self.menuBar()
+        settings = menubar.addMenu('&Settings')
+        change_settings = QtGui.QAction(QtGui.QIcon(), 'Change Settings', self)
+        change_settings.triggered.connect(self.start_settings_editor)
+        settings.addAction(change_settings)
+        
+        help = menubar.addMenu('&Help')
+        about = QtGui.QAction(QtGui.QIcon(), 'About', self)
+        about.triggered.connect(self.start_about)
+        help.addAction(about)
+
 
     def closeEvent(self, event):
         self.hide()
         settings.save_configs()
     
+    
+    def start_about(self):
+        about = About()
+        about.show()
+        about.exec_()
     
     def start_settings_editor(self):
         settings = SettingsEditor()
@@ -1393,7 +1430,6 @@ class MainWindow(QtGui.QMainWindow):
             self.tableview.scrollTo(goto_index, QtGui.QAbstractItemView.PositionAtTop)
 
     def load_episode_information_at_index(self, selected, deselected):
-        print "loading episode at index", self.sender()
         index = QtCore.QModelIndex()       
         try:
             index = selected.indexes()[0]
