@@ -465,7 +465,7 @@ class SeriesSearchWorker(WorkerThread):
         self.waiting.emit()
         
         try:
-            result = library.search_movie(self.searchfield.text())
+            result = library.search_movie(self.searchfield.text(), settings.settings["sources"])
             if len(result) == 0:
                 self.nothing_found.emit()
             else:                

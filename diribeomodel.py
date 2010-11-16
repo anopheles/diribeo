@@ -159,7 +159,9 @@ class Settings(object):
                              "normalize_names" : True,
                              "hash_movieclips" : False,
                              "number_of_thumbnails" : 8,
-                             "deployment_folder" : self.get_deployment_folder()}
+                             "deployment_folder" : self.get_deployment_folder(),
+                             "sources" : self.get_sources()
+                             }
         else:
             self.settings = settings      
 
@@ -178,6 +180,10 @@ class Settings(object):
         except KeyError:
             pass
 
+    def get_sources(self):
+        dictionary = {"imdb" : {}, "tvrage" : {}} #TODO  
+        return dict([[x, True] for x in dictionary.keys()])
+    
     def get_normalized_filename(self, filename, episode):
         name, ext = os.path.splitext(filename)
         return episode.get_normalized_name() + ext

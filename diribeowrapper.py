@@ -7,7 +7,7 @@ from diribeomodel import Episode, Series, NoInternetConnectionAvailable, series_
 
 class LibraryWrapper(object):
     def __init__(self):
-        implementation_list = [IMDBWrapper()]
+        implementation_list = [IMDBWrapper(), TVRageWrapper()]
         self.implementations = dict([(implementation.identifier,implementation) for implementation in implementation_list])
     
     def get_episodes(self, identifier, implementation_identifier):
@@ -19,10 +19,11 @@ class LibraryWrapper(object):
     def update_movie(self, movie):
         return self.implementations[movie.get_implementation_identifier()].update_movie(movie)
     
-    def search_movie(self, title):
+    def search_movie(self, title, sources):
         output = []
         for implementation in self.implementations:
-            output += self.implementations[implementation].search_movie(title)
+            if sources[implementation] is not False:
+                output += self.implementations[implementation].search_movie(title)
         return output
 
     def get_series_from_identifier(self, identifier):

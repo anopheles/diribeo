@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from lxml.html.defs import general_block_tags
 
 
 __author__ = 'David Kaufman'
@@ -27,7 +28,7 @@ from PyQt4 import QtCore
 from PyQt4.QtCore import Qt
 
 
-# Initialize the logger
+# Initialize logger
 log_filename = "logger_output.out"
 log.basicConfig(filename=log_filename,  format='%(asctime)s %(levelname)s %(message)s', level=log.DEBUG, filemode='w')
 
@@ -1003,22 +1004,49 @@ class WaitingWidget(QtGui.QWidget):
         self.setLayout(hbox)
     
 
-class SettingsEditor(QtGui.QDialog):
+class SourceSelectionSettings(QtGui.QWidget):
     def __init__(self, parent = None):
-        QtGui.QDialog.__init__(self, parent)
-            
-        diribeoutils.resize_to_percentage(self, 50)
-        self.inner_layout = QtGui.QVBoxLayout()
+        QtGui.QWidget.__init__(self, parent)
+        
+        self.hboxlayout = QtGui.QHBoxLayout()
+        self.setLayout(self.hboxlayout)
+        
+        self.source_settings_groupbox = QtGui.QGroupBox("Sources")
         self.form_layout = QtGui.QFormLayout()
-        self.main_layout = QtGui.QVBoxLayout()
-        self.header_layout = QtGui.QHBoxLayout()
-        self.button_layout = QtGui.QHBoxLayout()        
-        self.setLayout(self.main_layout)
+        self.source_settings_groupbox.setLayout(self.form_layout)
+        self.hboxlayout.addWidget(self.source_settings_groupbox)
         
-        self.setWindowTitle('Settings')
+        self.implementation_checkboxes = {}
         
-        self.settings_groupbox = QtGui.QGroupBox("Settings")
-        self.settings_groupbox.setLayout(self.form_layout)
+        for implementation in settings.get_sources():
+            self.implementation_checkboxes[implementation] = current_checkbox = QtGui.QCheckBox()
+            current_checkbox.setChecked(settings.settings["sources"][implementation])
+            self.form_layout.addRow(implementation, current_checkbox)
+        
+class StatisticsSettings(QtGui.QWidget):
+    def __init__(self, parent = None):
+        QtGui.QWidget.__init__(self, parent)
+        
+        self.hboxlayout = QtGui.QHBoxLayout()
+        self.setLayout(self.hboxlayout)
+        
+        self.statistics_settings_groupbox = QtGui.QGroupBox("Statistics")
+        self.form_layout = QtGui.QFormLayout()
+        self.statistics_settings_groupbox.setLayout(self.form_layout)
+        self.hboxlayout.addWidget(self.statistics_settings_groupbox)
+        
+class GeneralSettings(QtGui.QWidget):
+    def __init__(self, parent = None):
+        QtGui.QWidget.__init__(self, parent)
+        
+        self.hboxlayout = QtGui.QHBoxLayout()
+        self.setLayout(self.hboxlayout)
+        
+        self.general_settings_groupbox = QtGui.QGroupBox("General Settings")
+        self.hboxlayout.addWidget(self.general_settings_groupbox)
+        
+        self.form_layout = QtGui.QFormLayout()
+        self.general_settings_groupbox.setLayout(self.form_layout)
         
         self.copy_associated_movieclips_checkbox = QtGui.QCheckBox()
         self.copy_associated_movieclips_checkbox.setChecked(settings.get("copy_associated_movieclips"))
@@ -1037,9 +1065,90 @@ class SettingsEditor(QtGui.QDialog):
         
         
         self.number_of_thumbnails_edit = QtGui.QLineEdit(str(settings.get("number_of_thumbnails")))
-        self.default_settings_button = QtGui.QPushButton('Reset to default settings', self)
         
         self.deployment_folder_edit = QtGui.QLineEdit(str(settings.get("deployment_folder")))
+
+        
+        self.form_layout.addRow("Copy assoicated movieclips", self.copy_associated_movieclips_checkbox)
+        self.form_layout.addRow("Automatically create thumbnails", self.automatic_thumbnail_creation_checkbox)
+        self.form_layout.addRow("Show all movieclips", self.show_all_movieclips_checkbox)
+        self.form_layout.addRow("Normalize names", self.normalize_names_checkbox)
+        self.form_layout.addRow("Hash movieclips", self.hash_movieclips_checkbox)
+        self.form_layout.addRow("Number of thumbnails created", self.number_of_thumbnails_edit)
+        self.form_layout.addRow("Deployment folder", self.deployment_folder_edit)
+
+
+class SettingsEditor(QtGui.QDialog):
+    def __init__(self, parent = None):
+        QtGui.QDialog.__init__(self, parent)
+            
+        diribeoutils.resize_to_percentage(self, 50)
+
+        self.main_layout = QtGui.QVBoxLayout()
+        self.header_layout = QtGui.QHBoxLayout()
+        self.button_layout = QtGui.QHBoxLayout()  
+        self.view_layout = QtGui.QHBoxLayout()      
+        self.setLayout(self.main_layout)
+        
+        self.stacked_widget = QtGui.QStackedWidget()
+        
+        self.setWindowTitle('Settings')
+        
+        # Create General Settings Groupbox
+        self.general_settings_groupbox = GeneralSettings()
+        self.stacked_widget.addWidget(self.general_settings_groupbox)
+        
+        # Create Sources Settings Groupbox
+        self.sources_settings_groupbox = SourceSelectionSettings()
+        self.stacked_widget.addWidget(self.sources_settings_groupbox)
+       
+        # Create Statistic Settings Groupbox
+        self.statistic_settings_groupbox = StatisticsSettings()
+        self.stacked_widget.addWidget(self.statistic_settings_groupbox)       
+       
+        
+        # Build chooser which is at the left side of the window
+        self.chooser_toolbar = QtGui.QToolBar()
+        self.chooser_toolbar.setOrientation(Qt.Vertical)
+        self.chooser_toolbar.setIconSize(QtCore.QSize(64, 64))
+        
+        # Create buttons
+        
+        # Create general button 
+        icon_general_settings = QtGui.QIcon("images/dialog-information.png")
+        general_settings_button = QtGui.QToolButton()
+        general_settings_button.setIcon(icon_general_settings)
+        general_settings_button.setText("General Settings")
+        general_settings_button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+        general_settings_button.clicked.connect(functools.partial(self.stacked_widget.setCurrentWidget, self.general_settings_groupbox))
+        
+        
+        # Create sources button
+        icon_source_settings = QtGui.QIcon("images/internet-web-browser.png")
+        source_settings_button = QtGui.QToolButton()
+        source_settings_button.setIcon(icon_source_settings)
+        source_settings_button.setText("Sources")
+        source_settings_button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+        source_settings_button.clicked.connect(functools.partial(self.stacked_widget.setCurrentWidget, self.sources_settings_groupbox))
+        
+        
+        # Statistic settings
+        icon_statistic_settings = QtGui.QIcon("images/applications-accessories.png")
+        statistic_settings_button = QtGui.QToolButton()
+        statistic_settings_button.setIcon(icon_statistic_settings)
+        statistic_settings_button.setText("Statistics")
+        statistic_settings_button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+        statistic_settings_button.clicked.connect(functools.partial(self.stacked_widget.setCurrentWidget, self.statistic_settings_groupbox))
+        
+        
+        self.chooser_toolbar.addWidget(general_settings_button)
+        self.chooser_toolbar.addWidget(source_settings_button)
+        self.chooser_toolbar.addWidget(statistic_settings_button)
+        
+        self.default_settings_button = QtGui.QPushButton('Reset to default settings', self)
+        
+        self.view_layout.addWidget(self.chooser_toolbar)
+        self.view_layout.addWidget(self.stacked_widget)
         
         self.okay_button = QtGui.QPushButton("Save settings")
         self.okay_button.pressed.connect(self.save_settings)
@@ -1050,31 +1159,32 @@ class SettingsEditor(QtGui.QDialog):
         self.button_layout.addWidget(self.cancel_button)
         self.button_layout.addStretch(1)
         
-        self.form_layout.addRow("Copy assoicated movieclips", self.copy_associated_movieclips_checkbox)
-        self.form_layout.addRow("Automatically create thumbnails", self.automatic_thumbnail_creation_checkbox)
-        self.form_layout.addRow("Show all movieclips", self.show_all_movieclips_checkbox)
-        self.form_layout.addRow("Normalize names", self.normalize_names_checkbox)
-        self.form_layout.addRow("Hash movieclips", self.hash_movieclips_checkbox)
-        self.form_layout.addRow("Number of thumbnails created", self.number_of_thumbnails_edit)
-        self.form_layout.addRow("Deployment folder", self.deployment_folder_edit)
-        
-        self.main_layout.addWidget(self.settings_groupbox)
+        self.main_layout.addLayout(self.view_layout)
         self.main_layout.addWidget(self.default_settings_button)
-        self.main_layout.addLayout(self.button_layout)        
+        self.main_layout.addLayout(self.button_layout)   
+        
+             
         
     def save_settings(self):
-        #TODO
-        settings["copy_associated_movieclips"] = self.copy_associated_movieclips_checkbox.checkState()
-        settings["automatic_thumbnail_creation"] = self.automatic_thumbnail_creation_checkbox.checkState()
-        settings["show_all_movieclips"] = self.show_all_movieclips_checkbox.checkState()
-        settings["normalize_names"] = self.normalize_names_checkbox.checkState()
-        settings["hash_movieclips"] = self.hash_movieclips_checkbox.checkState()
+        # Handle General Settings
+        settings["copy_associated_movieclips"] = self.general_settings_groupbox.copy_associated_movieclips_checkbox.checkState()
+        settings["automatic_thumbnail_creation"] = self.general_settings_groupbox.automatic_thumbnail_creation_checkbox.checkState()
+        settings["show_all_movieclips"] = self.general_settings_groupbox.show_all_movieclips_checkbox.checkState()
+        settings["normalize_names"] = self.general_settings_groupbox.normalize_names_checkbox.checkState()
+        settings["hash_movieclips"] = self.general_settings_groupbox.hash_movieclips_checkbox.checkState()
         try:
-            settings["number_of_thumbnails"] = int(self.number_of_thumbnails_edit.text())
+            settings["number_of_thumbnails"] = int(self.general_settings_groupbox.number_of_thumbnails_edit.text())
         except ValueError:
             settings["number_of_thumbnails"] = 8
         
-        settings["deployment_folder"] = str(self.deployment_folder_edit.text())
+        settings["deployment_folder"] = str(self.general_settings_groupbox.deployment_folder_edit.text())
+        
+        
+        # Handle Source Settings
+        checkbox_dict = self.sources_settings_groupbox.implementation_checkboxes
+        settings.settings["sources"] = dict([[x, bool(checkbox_dict[x].checkState())] for x in  checkbox_dict])
+        print settings.settings["sources"]
+        
         
         self.hide()
 
