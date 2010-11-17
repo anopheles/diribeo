@@ -1008,15 +1008,24 @@ class About(QtGui.QDialog):
         
         self.jobs = jobs
         self.vboxlayout = QtGui.QVBoxLayout()
+        self.update_layout = QtGui.QHBoxLayout()  
         self.setLayout(self.vboxlayout)
-        diribeo_pixmap = QtGui.QPixmap("images/diribeo_logo.png")
-        self.diribeo_logo = QtGui.QLabel()
-        self.diribeo_logo.setPixmap(diribeo_pixmap)
+        diribeo_icon = QtGui.QIcon("images/diribeo_logo.png")
+        self.diribeo_button = QtGui.QPushButton()
+        self.diribeo_button.setIcon(diribeo_icon)
+        self.diribeo_button.setIconSize(QtCore.QSize(200,200))
+        self.diribeo_button.clicked.connect(functools.partial(QtGui.QDesktopServices.openUrl, QtCore.QUrl("http://www.diribeo.de")))
         
-        self.vboxlayout.addWidget(self.diribeo_logo)
+        self.vboxlayout.addWidget(self.diribeo_button)
         self.vboxlayout.addWidget(QtGui.QLabel("Diribeo is an open source application. To get more information about it check out http://www.diribeo.de"))
+        self.vboxlayout.addLayout(self.update_layout)
+        
+        
+        self.update_image_label = QtGui.QLabel()
         self.update_label = QtGui.QLabel("Checking for updates ...")
-        self.vboxlayout.addWidget(self.update_label)
+        self.update_layout.addWidget(self.update_image_label)
+        self.update_layout.addWidget(self.update_label)
+        self.update_layout.addStretch(1)
         
         self.get_version_update()
 
@@ -1026,19 +1035,27 @@ class About(QtGui.QDialog):
         self.jobs.append(job)
         job.start()
 
+    
+    def version_to_string(self, version):
+        return ".".join([str(x) for x in version])
+    
     def update_version(self, version):
         text = ""
-        icon = QtGui.QIcon()
+        pixmap_location = ""
+        
         
         if version == __version__:
-            text = "BINGO"
-        elif version < __version__:
-            text = "THERE IS A NEWER VERSION AVAILABLE"
+            text = "Diribeo is up-to-date (%s)" % self.version_to_string(__version__)
+            pixmap_location = "images/emblem-favorite.png"
+        elif version > __version__:
+            text = "There is a newer version available. Your version is %s, version available is %s" % (self.version_to_string(__version__), self.version_to_string(version))
+            pixmap_location = "images/face-sad.png"
         else:
-            text = "ERROR"
+            text = "W0ot? Your version is newer than the newest version! Get lost!"
+            pixmap_location = "images/face-surprise.png"
              
         self.update_label.setText(text)
-        self.update_label.setPixmap()
+        self.update_image_label.setPixmap(QtGui.QPixmap(pixmap_location))
 
 class SourceSelectionSettings(QtGui.QWidget):
     def __init__(self, parent = None):
