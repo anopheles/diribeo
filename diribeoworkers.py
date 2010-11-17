@@ -269,7 +269,7 @@ class VersionChecker(WorkerThread):
     def run(self):
         self.waiting.emit()
         try:
-            content = urllib2.urlopen("http://diribeo.de/currentversion").read()
+            content = urllib2.urlopen("http://diribeo.de/tasks/currentversion").read()
             version = tuple(json.loads(content)["version"])
             self.finished.emit(version)
         except urllib2.URLError:

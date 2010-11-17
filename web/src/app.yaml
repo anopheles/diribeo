@@ -13,5 +13,13 @@ handlers:
 - url: /.views
   static_dir: .views
 
+
+- url: /tasks/currentversion
+  script: currentversion.py
+
+- url: /tasks/updateversion
+  script: updateversion.py
+  login: admin
+
 - url: /.*
   script: main.py
