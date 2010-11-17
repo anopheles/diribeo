@@ -3,7 +3,7 @@ from lxml.html.defs import general_block_tags
 
 
 __author__ = 'David Kaufman'
-__version__ = (0,0,2,"dev")
+__version__ = (0,0,3,"dev")
 __license__ = 'MIT'
 
 
