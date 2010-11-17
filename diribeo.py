@@ -3,7 +3,7 @@ from lxml.html.defs import general_block_tags
 
 
 __author__ = 'David Kaufman'
-__version__ = '0.0.2dev'
+__version__ = (0,0,2,"dev")
 __license__ = 'MIT'
 
 
@@ -14,7 +14,6 @@ import logging as log
 import subprocess
 import functools
 import collections
-import urllib2
 
 import diribeomessageboxes
 import diribeomodel
@@ -23,7 +22,7 @@ import diribeoutils
 
 
 from diribeomodel import Series, Episode, MovieClipAssociation, Settings
-from diribeoworkers import SeriesSearchWorker, ModelFiller, MultipleMovieClipAssociator, ThumbnailGenerator, MultipleAssignerThread, MovieUpdater
+from diribeoworkers import SeriesSearchWorker, ModelFiller, MultipleMovieClipAssociator, ThumbnailGenerator, MultipleAssignerThread, MovieUpdater, VersionChecker
 
 
 from PyQt4 import QtGui
@@ -1002,11 +1001,12 @@ class WaitingWidget(QtGui.QWidget):
         self.setLayout(hbox)
  
 class About(QtGui.QDialog):
-    def __init__(self, parent = None):
+    def __init__(self, jobs, parent = None):
         QtGui.QDialog.__init__(self, parent) 
         diribeoutils.resize_to_percentage(self, 25) 
         self.setWindowTitle('About') 
         
+        self.jobs = jobs
         self.vboxlayout = QtGui.QVBoxLayout()
         self.setLayout(self.vboxlayout)
         diribeo_pixmap = QtGui.QPixmap("images/diribeo_logo.png")
@@ -1015,16 +1015,30 @@ class About(QtGui.QDialog):
         
         self.vboxlayout.addWidget(self.diribeo_logo)
         self.vboxlayout.addWidget(QtGui.QLabel("Diribeo is an open source application. To get more information about it check out http://www.diribeo.de"))
+        self.update_label = QtGui.QLabel("Checking for updates ...")
+        self.vboxlayout.addWidget(self.update_label)
         
-        self.vboxlayout.addWidget(self.get_version_update())
+        self.get_version_update()
 
     def get_version_update(self):
-        # Acces web and compare versions
-        #urllib2.urlopen("http://localhost/update")
-        
-        # TODO Every version is currently the most recent version!
-        return QtGui.QPushButton(QtGui.QIcon("images/emblem-favorite.png"), "This version (%s) is up-to-date!" % __version__)
+        job = VersionChecker(__version__)
+        job.finished.connect(self.update_version)
+        self.jobs.append(job)
+        job.start()
 
+    def update_version(self, version):
+        text = ""
+        icon = QtGui.QIcon()
+        
+        if version == __version__:
+            text = "BINGO"
+        elif version < __version__:
+            text = "THERE IS A NEWER VERSION AVAILABLE"
+        else:
+            text = "ERROR"
+             
+        self.update_label.setText(text)
+        self.update_label.setPixmap()
 
 class SourceSelectionSettings(QtGui.QWidget):
     def __init__(self, parent = None):
@@ -1280,7 +1294,7 @@ class MainWindow(QtGui.QMainWindow):
     
     
     def start_about(self):
-        about = About()
+        about = About(self.jobs)
         about.show()
         about.exec_()
     

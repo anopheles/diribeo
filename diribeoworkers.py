@@ -4,10 +4,12 @@ import hashlib
 import shlex
 import glob
 import uuid
+import urllib2
 import functools
 import os
 import subprocess
 import re
+import json
 import diribeomessageboxes
 import collections
 
@@ -255,6 +257,25 @@ class MultipleAssignerThread(WorkerThread):
             return (float(lower + upper)) / 2
 
 
+
+class VersionChecker(WorkerThread):
+    finished = QtCore.pyqtSignal("PyQt_PyObject")
+    
+    def __init__(self, reference_version):
+        WorkerThread.__init__(self)
+        self.description = "Checking for updates"
+        self.reference_version = reference_version
+        
+    def run(self):
+        self.waiting.emit()
+        try:
+            content = urllib2.urlopen("http://diribeo.de/currentversion").read()
+            version = tuple(json.loads(content)["version"])
+            self.finished.emit(version)
+        except urllib2.URLError:
+            self.finished.emit("ERROR")
+
+
 class MultipleMovieClipAssociator(AssignerThread):
     ''' This class is responsible for associating a movie clip with a given episode.
         It emits various signals which can be used for feedback.
@@ -438,9 +459,7 @@ class MovieUpdater(WorkerThread):
         
     def run(self):
         self.waiting.emit()
-        
         library.update_movie(self.movie)
-        
         self.finished.emit()
     
 

@@ -1,37 +1,34 @@
 import bottle
-from bottle import route, run
+
+from bottle import route, view, template
+from google.appengine.ext.webapp import util
 
 bottle.debug(False)
 
-from bottle import route, view, template
-from google.appengine.ext.webapp import util 
-
-
-
-@route("/update")
+@route("/currentversion")
 def update():
-	print template("update")
+	return template("currentversion")
 
 @route("/contribute")
 def contribute():
-	print template("contribute")
+	return template("contribute")
 
 @route("/tutorial")
 def tutorial():
-	print template("tutorial")
+	return template("tutorial")
 
 @route("/contact")
 def contact():
-	print template("contact")
+	return template("contact")
 
 @route("/faq")
 def faq():
-	print template("faq")
+	return template("faq")
 
 @route("/:overview")
 @route("/")		
 def default(overview=""):
-	print template("overview")
+	return template("overview")
 
 
 util.run_wsgi_app(bottle.default_app())
