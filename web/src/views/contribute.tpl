@@ -51,4 +51,4 @@ To download the most recent version of Diribeo you must have git installed on yo
 </ul>
 </div>
 
-%rebase main
+%rebase main version=version

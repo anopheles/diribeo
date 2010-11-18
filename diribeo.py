@@ -1042,18 +1042,20 @@ class About(QtGui.QDialog):
     def update_version(self, version):
         text = ""
         pixmap_location = ""
-        
-        
-        if version == __version__:
-            text = "Diribeo is up-to-date (%s)" % self.version_to_string(__version__)
-            pixmap_location = "images/emblem-favorite.png"
-        elif version > __version__:
-            text = "There is a newer version available. Your version is %s, version available is %s" % (self.version_to_string(__version__), self.version_to_string(version))
-            pixmap_location = "images/face-sad.png"
+        if version != "ERROR":            
+            if version == __version__:
+                text = "Diribeo is up-to-date (%s)" % self.version_to_string(__version__)
+                pixmap_location = "images/emblem-favorite.png"
+            elif version > __version__:
+                text = "There is a newer version available. Your version is %s. The most recent version however is %s" % (self.version_to_string(__version__), self.version_to_string(version))
+                pixmap_location = "images/face-sad.png"
+            else:
+                text = "W0ot? Your version is newer than the newest version available!??!?! Get lost!"
+                pixmap_location = "images/face-surprise.png"
         else:
-            text = "W0ot? Your version is newer than the newest version! Get lost!"
-            pixmap_location = "images/face-surprise.png"
-             
+            text = "There has been an error while retrieving version information"
+            pixmap_location = "images/software-update-urgent.png"
+                 
         self.update_label.setText(text)
         self.update_image_label.setPixmap(QtGui.QPixmap(pixmap_location))
 
@@ -1613,6 +1615,7 @@ class SeriesWidgetItem(QtGui.QListWidgetItem):
 if __name__ == "__main__":
 
     app = QtGui.QApplication(sys.argv)
+    app.setWindowIcon(QtGui.QIcon("images/video-x-generic.png"))
     
     library = diribeowrapper.library
     active_table_models = {}

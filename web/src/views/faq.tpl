@@ -35,4 +35,4 @@ To submit your bug report, feature request or bug fix/new feature patch go the <
 
 </ul>
 
-%rebase main
+%rebase main version=version

@@ -29,4 +29,4 @@ Project Manager and Lead Developer: <a href="mailto:david.kaufman@gmx.de">David 
 
 
 
-%rebase main
+%rebase main version=version
