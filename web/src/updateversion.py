@@ -6,8 +6,12 @@ from google.appengine.ext.webapp.util import run_wsgi_app
 from google.appengine.ext import db
 
 import urllib2
-import simplejson as json
-import re
+
+try:
+    import simplejson as json
+except ImportError:
+    import json
+    
 
 class Version(db.Model):
     number = db.StringProperty()
@@ -19,22 +23,9 @@ class Version(db.Model):
             result = urllib2.urlopen(url)
             for line in result:
                 if "__version__" in line:
-                    m = re.search(r"(.*)=(.*)", line)
-                    version = [x for x in re.split('\W+', m.group(2)) if x != ""]
-                    dictionary = {"version" : self.integerfy(version)}
-                    return json.dumps(dictionary)
+                    return ("{" + line.replace("=",":").replace("__", '"').replace("(", "[").replace(")", "]}")).replace("\n", "")
         except urllib2.URLError, e:
-            print e
-            return None
-
-    def integerfy(self, input):
-        output = []
-        for x in input:
-            try:
-                output.append(int(x))
-            except ValueError:
-                output.append(x)
-        return output
+            pass
 
 
 current_version = Version()
