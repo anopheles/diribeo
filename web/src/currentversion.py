@@ -11,7 +11,6 @@ class Version(db.Model):
 
 versions = db.GqlQuery("SELECT * FROM Version ORDER BY date DESC LIMIT 1")
 
-# Force site to send data
 def return_version():
     for version in versions:
         return version.number
