@@ -17,7 +17,6 @@ from diribeomodel import settings, movieclips, series_list, MovieClip, NoInterne
 from diribeowrapper import library
 from operator import itemgetter
 from PyQt4 import QtCore
-from timeit import itertools
 
 
 class WorkerThread(QtCore.QThread):
