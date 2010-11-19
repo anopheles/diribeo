@@ -17,6 +17,7 @@ from diribeomodel import settings, movieclips, series_list, MovieClip, NoInterne
 from diribeowrapper import library
 from operator import itemgetter
 from PyQt4 import QtCore
+from timeit import itertools
 
 
 class WorkerThread(QtCore.QThread):
@@ -61,50 +62,50 @@ class WorkerThread(QtCore.QThread):
             checksum = self.hash_file(iso_file, hashlib.sha224(), self.progress.emit)
             return checksum
 
-    def dameraulevenshtein(self, seq1, seq2):
-            """Calculate the Damerau-Levenshtein distance between sequences.
-        
-            This distance is the number of additions, deletions, substitutions,
-            and transpositions needed to transform the first sequence into the
-            second. Although generally used with strings, any sequences of
-            comparable objects will work.
-        
-            Transpositions are exchanges of *consecutive* characters; all other
-            operations are self-explanatory.
-        
-            This implementation is O(N*M) time and O(M) space, for N and M the
-            lengths of the two sequences.
-        
-            >>> dameraulevenshtein('ba', 'abc')
-            2
-            >>> dameraulevenshtein('fee', 'deed')
-            2
-        
-            It works with arbitrary sequences too:
-            >>> dameraulevenshtein('abcd', ['b', 'a', 'c', 'd', 'e'])
-            2
-            """
-            # codesnippet:D0DE4716-B6E6-4161-9219-2903BF8F547F
-            # Conceptually, this is based on a len(seq1) + 1 * len(seq2) + 1 matrix.
-            # However, only the current and two previous rows are needed at once,
-            # so we only store those.
-            oneago = None
-            thisrow = range(1, len(seq2) + 1) + [0]
-            for x in xrange(len(seq1)):
-                # Python lists wrap around for negative indices, so put the
-                # leftmost column at the *end* of the list. This matches with
-                # the zero-indexed strings and saves extra calculation.
-                twoago, oneago, thisrow = oneago, thisrow, [0] * len(seq2) + [x + 1]
-                for y in xrange(len(seq2)):
-                    delcost = oneago[y] + 1
-                    addcost = thisrow[y - 1] + 1
-                    subcost = oneago[y - 1] + (seq1[x] != seq2[y])
-                    thisrow[y] = min(delcost, addcost, subcost)
-                    # This block deals with transpositions
-                    if (x > 0 and y > 0 and seq1[x] == seq2[y - 1]
-                        and seq1[x-1] == seq2[y] and seq1[x] != seq2[y]):
-                        thisrow[y] = min(thisrow[y], twoago[y - 2] + 1)
-            return thisrow[len(seq2) - 1]
+def dameraulevenshtein(seq1, seq2):
+        """Calculate the Damerau-Levenshtein distance between sequences.
+    
+        This distance is the number of additions, deletions, substitutions,
+        and transpositions needed to transform the first sequence into the
+        second. Although generally used with strings, any sequences of
+        comparable objects will work.
+    
+        Transpositions are exchanges of *consecutive* characters; all other
+        operations are self-explanatory.
+    
+        This implementation is O(N*M) time and O(M) space, for N and M the
+        lengths of the two sequences.
+    
+        >>> dameraulevenshtein('ba', 'abc')
+        2
+        >>> dameraulevenshtein('fee', 'deed')
+        2
+    
+        It works with arbitrary sequences too:
+        >>> dameraulevenshtein('abcd', ['b', 'a', 'c', 'd', 'e'])
+        2
+        """
+        # codesnippet:D0DE4716-B6E6-4161-9219-2903BF8F547F
+        # Conceptually, this is based on a len(seq1) + 1 * len(seq2) + 1 matrix.
+        # However, only the current and two previous rows are needed at once,
+        # so we only store those.
+        oneago = None
+        thisrow = range(1, len(seq2) + 1) + [0]
+        for x in xrange(len(seq1)):
+            # Python lists wrap around for negative indices, so put the
+            # leftmost column at the *end* of the list. This matches with
+            # the zero-indexed strings and saves extra calculation.
+            twoago, oneago, thisrow = oneago, thisrow, [0] * len(seq2) + [x + 1]
+            for y in xrange(len(seq2)):
+                delcost = oneago[y] + 1
+                addcost = thisrow[y - 1] + 1
+                subcost = oneago[y - 1] + (seq1[x] != seq2[y])
+                thisrow[y] = min(delcost, addcost, subcost)
+                # This block deals with transpositions
+                if (x > 0 and y > 0 and seq1[x] == seq2[y - 1]
+                    and seq1[x-1] == seq2[y] and seq1[x] != seq2[y]):
+                    thisrow[y] = min(thisrow[y], twoago[y - 2] + 1)
+        return thisrow[len(seq2) - 1]
 
 
 class AssignerThread(WorkerThread):
@@ -124,10 +125,11 @@ class MultipleAssignerThread(WorkerThread):
     result = QtCore.pyqtSignal("PyQt_PyObject")
     
     
-    def __init__(self, filepath_dir_list, series):
+    def __init__(self, filepath_dir_list, series, pool):
         WorkerThread.__init__(self)
         self.filepath_dir_list = filepath_dir_list
         self.series = series
+        self.pool = pool
 
         hint = ""
         if self.series is not None:
@@ -135,15 +137,17 @@ class MultipleAssignerThread(WorkerThread):
             
         self.description = "Assigning multiple clips " + hint
     
-    def create_episode_list(self, series):
+    def create_episode_list(self, series, filename):
                 
         episode_list = []
         if self.series is None:        
             for series in series_list:
                 for episode in series.episodes:
+                    episode.filename = filename
                     episode_list.append(episode)
         else:
             for episode in self.series:
+                episode.filename = filename
                 episode_list.append(episode)
         
         return episode_list
@@ -219,30 +223,26 @@ class MultipleAssignerThread(WorkerThread):
                 else:
                     # c)
                     self.additional_descriptions["guess"] = "Guessing episode"
-                    episode_list = self.create_episode_list(self.series)
+                    episode_list = self.create_episode_list(self.series, filename)
                     
-                    episode_list_length = len(episode_list)
-                    counter = 0
-                    total_score = 0
-                    episode_score_list = []
-                    for episode in episode_list:
-                        score = min([self.dameraulevenshtein(title, filename) for title in episode.get_alternative_titles() + [episode.get_normalized_name()]])
-                        episode_score_list.append([episode, score])
-                        self.progress.emit(counter, episode_list_length)
-                        total_score += score 
-                        counter += 1
+                    result = self.pool.map_async(generate_episode_score_list, episode_list)
+                    episode_score_list = result.get(timeout=100)
                     
                     episode_score_list.sort(key = itemgetter(1))
+                    total_score = sum([score for episode, score in episode_score_list])
+                    counter = len(episode_score_list)
                     
                     movieclip_association.movieclip = movieclip
                     movieclip_association.episode_scores_list = episode_score_list
                     movieclip_association.message = movieclip_association.ASSOCIATION_GUESSED
                     movieclip_association.episode_score_information["mean"] = float(total_score) / float(counter)
                     movieclip_association.episode_score_information["median"] = self.get_median([score for episode, score in episode_score_list])
+                    
                     self.additional_descriptions["guess"] = ""
         
         self.result.emit(movieclip_associations)
         self.finished.emit()
+
 
 
     def get_median(self, values):
@@ -258,6 +258,11 @@ class MultipleAssignerThread(WorkerThread):
 
 
 
+def generate_episode_score_list(episode):
+    score = min([dameraulevenshtein(title, episode.filename) for title in episode.get_alternative_titles() + [episode.get_normalized_name()]])
+    return [episode, score]
+
+    
 class VersionChecker(WorkerThread):
     finished = QtCore.pyqtSignal("PyQt_PyObject")
     
@@ -274,7 +279,6 @@ class VersionChecker(WorkerThread):
             self.finished.emit(version)
         except urllib2.URLError:
             self.finished.emit("ERROR")
-
 
 class MultipleMovieClipAssociator(AssignerThread):
     ''' This class is responsible for associating a movie clip with a given episode.
@@ -503,7 +507,7 @@ class ModelFiller(WorkerThread):
         self.model = model
         self.series = self.model.series
         self.model.generator = library.get_episodes(movie, self.series.identifier.keys()[0])
-        self.description = "Filling a model"
+        self.description = "Downloading Series"
 
     def run(self): 
                     

@@ -1,6 +1,4 @@
 # -*- coding: utf-8 -*-
-from lxml.html.defs import general_block_tags
-
 
 __author__ = 'David Kaufman'
 __version__ = (0,0,3,"dev")
@@ -14,6 +12,7 @@ import logging as log
 import subprocess
 import functools
 import collections
+import multiprocessing
 
 import diribeomessageboxes
 import diribeomodel
@@ -28,6 +27,9 @@ from diribeoworkers import SeriesSearchWorker, ModelFiller, MultipleMovieClipAss
 from PyQt4 import QtGui
 from PyQt4 import QtCore
 from PyQt4.QtCore import Qt
+
+
+HOMEPAGE = "http://www.diribeo.de"
 
 
 # Initialize logger
@@ -687,7 +689,6 @@ class EpisodeOverviewWidget(QtGui.QWidget):
         self.stacked_widget.addWidget(self.tableview)
         self.stacked_widget.addWidget(self.waiting_widget)
         self.stacked_widget.addWidget(self.getting_started_widget)
-        self.stacked_widget.setCurrentWidget(self.waiting_widget)
         
         vbox = QtGui.QVBoxLayout()
         vbox.addWidget(self.stacked_widget)
@@ -987,16 +988,12 @@ class WaitingWidget(QtGui.QWidget):
         vbox = QtGui.QVBoxLayout()
         self.setAutoFillBackground(True)
         
-        vbox.setSpacing(3)
         vbox.addStretch(10)
         vbox.addWidget(AnimatedLabel("images/process-working.png", 8, 4))
-        vbox.addWidget(QtGui.QLabel("Downloading ..."))
-        vbox.addStretch(20)
-        
-        hbox.setSpacing(3)
-        hbox.addStretch(20)
+        vbox.addStretch(10)
+        hbox.addStretch(10)
         hbox.addLayout(vbox)
-        hbox.addStretch(20)
+        hbox.addStretch(10)
         
         self.setLayout(hbox)
  
@@ -1014,7 +1011,7 @@ class About(QtGui.QDialog):
         self.diribeo_button = QtGui.QPushButton()
         self.diribeo_button.setIcon(diribeo_icon)
         self.diribeo_button.setIconSize(QtCore.QSize(200,200))
-        self.diribeo_button.clicked.connect(functools.partial(QtGui.QDesktopServices.openUrl, QtCore.QUrl("http://www.diribeo.de")))
+        self.diribeo_button.clicked.connect(functools.partial(QtGui.QDesktopServices.openUrl, QtCore.QUrl(HOMEPAGE)))
         
         self.vboxlayout.addWidget(self.diribeo_button)
         self.vboxlayout.addWidget(QtGui.QLabel("Diribeo is an open source application. To get more information about it check out http://www.diribeo.de"))
@@ -1048,7 +1045,7 @@ class About(QtGui.QDialog):
                 pixmap_location = "images/emblem-favorite.png"
             elif version > __version__:
                 text = "There is a newer version available. Your version is %s. The most recent version however is %s" % (self.version_to_string(__version__), self.version_to_string(version))
-                pixmap_location = "images/face-sad.png"
+                pixmap_location = "images/software-update-available.png"
             else:
                 text = "W0ot? Your version is newer than the newest version available!??!?! Get lost!"
                 pixmap_location = "images/face-surprise.png"
@@ -1078,17 +1075,17 @@ class SourceSelectionSettings(QtGui.QWidget):
             current_checkbox.setChecked(settings.settings["sources"][implementation])
             self.form_layout.addRow(implementation, current_checkbox)
         
-class StatisticsSettings(QtGui.QWidget):
+class AppearanceSettings(QtGui.QWidget):
     def __init__(self, parent = None):
         QtGui.QWidget.__init__(self, parent)
         
         self.hboxlayout = QtGui.QHBoxLayout()
         self.setLayout(self.hboxlayout)
         
-        self.statistics_settings_groupbox = QtGui.QGroupBox("Statistics")
+        self.appearance_settings_groupbox = QtGui.QGroupBox("Appearance")
         self.form_layout = QtGui.QFormLayout()
-        self.statistics_settings_groupbox.setLayout(self.form_layout)
-        self.hboxlayout.addWidget(self.statistics_settings_groupbox)
+        self.appearance_settings_groupbox.setLayout(self.form_layout)
+        self.hboxlayout.addWidget(self.appearance_settings_groupbox)
         
 class GeneralSettings(QtGui.QWidget):
     def __init__(self, parent = None):
@@ -1158,8 +1155,8 @@ class SettingsEditor(QtGui.QDialog):
         self.sources_settings_groupbox = SourceSelectionSettings()
         self.stacked_widget.addWidget(self.sources_settings_groupbox)
        
-        # Create Statistic Settings Groupbox
-        self.statistic_settings_groupbox = StatisticsSettings()
+        # Create Appearance Settings Groupbox
+        self.statistic_settings_groupbox = AppearanceSettings()
         self.stacked_widget.addWidget(self.statistic_settings_groupbox)       
        
         
@@ -1192,7 +1189,7 @@ class SettingsEditor(QtGui.QDialog):
         icon_statistic_settings = QtGui.QIcon("images/applications-accessories.png")
         statistic_settings_button = QtGui.QToolButton()
         statistic_settings_button.setIcon(icon_statistic_settings)
-        statistic_settings_button.setText("Statistics")
+        statistic_settings_button.setText("Appearance")
         statistic_settings_button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
         statistic_settings_button.clicked.connect(functools.partial(self.stacked_widget.setCurrentWidget, self.statistic_settings_groupbox))
         
@@ -1296,21 +1293,40 @@ class MainWindow(QtGui.QMainWindow):
 
     def build_menu_bar(self):
         menubar = self.menuBar()
+        
+        file = menubar.addMenu('&File')
+        save = QtGui.QAction(QtGui.QIcon("images/document-save.png"), 'Save', self)
+        save.triggered.connect(self.save_settings)
+        exit = QtGui.QAction(QtGui.QIcon("images/system-log-out.png"), 'Exit', self)
+        exit.triggered.connect(self.closeEvent)
+        file.addAction(save)
+        file.addAction(exit)
+        
+        manage = menubar.addMenu('&Manage')
+        add_movieclips = QtGui.QAction(QtGui.QIcon("images/list-add.png"), 'Add Movieclips', self) 
+        add_movieclips.triggered.connect(self.start_assign_dialog)
+        manage.addAction(add_movieclips)
+        
         settings = menubar.addMenu('&Settings')
-        change_settings = QtGui.QAction(QtGui.QIcon(), 'Change Settings', self)
+        change_settings = QtGui.QAction(QtGui.QIcon("images/preferences-desktop-font.png"), 'Change Settings', self)
         change_settings.triggered.connect(self.start_settings_editor)
         settings.addAction(change_settings)
         
         help = menubar.addMenu('&Help')
+        help_contents = QtGui.QAction(QtGui.QIcon("images/help-browser.png"), 'Help Contents', self)
+        help_contents.triggered.connect(functools.partial(QtGui.QDesktopServices.openUrl, QtCore.QUrl(HOMEPAGE+"/faq")))
         about = QtGui.QAction(QtGui.QIcon(), 'About', self)
         about.triggered.connect(self.start_about)
+        help.addAction(help_contents)
         help.addAction(about)
 
 
-    def closeEvent(self, event):
-        self.hide()
+    def save_settings(self):
         settings.save_configs()
     
+    def closeEvent(self, event):
+        self.hide()
+        self.save_settings()
     
     def start_about(self):
         about = About(self.jobs)
@@ -1346,13 +1362,14 @@ class MainWindow(QtGui.QMainWindow):
         wizard.exec_()
     
     def start_assign_dialog(self, movie):
-        
         if isinstance(movie, Episode):
             filepath = QtGui.QFileDialog.getOpenFileName(directory = settings.get_user_dir())
             if filepath != "":
                 mainwindow.add_movieclip_to_episode(filepath, movie)
-                
         else:
+            # In some cases movie has a boolean type which causes an error later on
+            if not isinstance(movie, Series):
+                movie = None
             filepath_dir_list = QtGui.QFileDialog.getOpenFileNames(directory = settings.get_user_dir())
             mainwindow.multiple_assigner(filepath_dir_list, movie)
         
@@ -1369,11 +1386,11 @@ class MainWindow(QtGui.QMainWindow):
         job.error_in_thumbnail_creation.connect(functools.partial(diribeomessageboxes.error_in_thumbnail_creation_warning, movieclip, episode), Qt.QueuedConnection)        
         self.jobs.append(job)
         job.start()
-
     
     def multiple_assigner(self, filepath_dir_list, series):
+        # series might be none. Treat series as a hint
         if len(filepath_dir_list) > 0:
-            job = MultipleAssignerThread(filepath_dir_list, series)
+            job = MultipleAssignerThread(filepath_dir_list, series, pool)
             job.result.connect(self.start_multiple_association_wizard, Qt.QueuedConnection)
             self.jobs.append(job)
             job.start()
@@ -1619,6 +1636,8 @@ if __name__ == "__main__":
     
     library = diribeowrapper.library
     active_table_models = {}
+
+    pool = multiprocessing.Pool()
 
     settings = diribeomodel.settings
     series_list = diribeomodel.series_list
