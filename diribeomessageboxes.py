@@ -1,9 +1,5 @@
 # -*- coding: utf-8 -*-
-'''
-Created on 05.07.2010
 
-@author: anopheles
-'''
 import os
 
 from PyQt4 import QtGui
@@ -12,7 +8,7 @@ from PyQt4 import QtGui
 def nothing_found_warning():      
     messagebox = QtGui.QMessageBox(QtGui.QMessageBox.Information, "Nothing was found", "")
     messagebox.setText("Nothing was found.")
-    messagebox.setInformativeText("Make sure that you type in a valid series name.")
+    messagebox.setInformativeText("Make sure that you type in a valid series name and have at least one source selected.")
     messagebox.setStandardButtons(QtGui.QMessageBox.Ok)
     messagebox.exec_()
              

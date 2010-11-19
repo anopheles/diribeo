@@ -189,6 +189,7 @@ class MultipleAssignerThread(WorkerThread):
         
         filepath_list_length = len(self.filepath_list)
         for index, filepath in enumerate(self.filepath_list):
+            self.progress.emit(index, filepath_list_length)
             
             movieclip_association = MovieClipAssociation(filepath)
             movieclip_associations.append(movieclip_association)
@@ -283,6 +284,7 @@ class MultipleMovieClipAssociator(AssignerThread):
     ''' This class is responsible for associating a movie clip with a given episode.
         It emits various signals which can be used for feedback.
     '''
+    finished = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject")
     
     def __init__(self, movieclip_associations):
         AssignerThread.__init__(self)
@@ -323,8 +325,8 @@ class MultipleMovieClipAssociator(AssignerThread):
                     self.already_exists_in_another.emit()
                 else:
                     self.assign(movieclip_association)
-        
-        self.finished.emit()
+                    
+        self.finished.emit(episode, movieclip_association.movieclip)
     
     def assign(self, movieclip_association):
         """ Here is a list of possibilities that might occur:
@@ -341,6 +343,7 @@ class MultipleMovieClipAssociator(AssignerThread):
         destination = settings.calculate_filepath(episode, filename)
         directory = os.path.dirname(destination)
         
+        print movieclip_association.movieclip, movieclips[episode.get_identifier()]
         if movieclip_association.movieclip in movieclips[episode.get_identifier()]:
             
             if os.path.isfile(destination):
@@ -368,7 +371,10 @@ class MultipleMovieClipAssociator(AssignerThread):
             filename = settings.get_unique_filename(destination, episode)
             
             # Move the file to the actual folder
-            self.additional_descriptions["moving"] = "Moving/Copying movieclip to destination"
+            copy_move = "Moving"
+            if settings.settings["copy_associated_movieclips"]:
+                copy_move = "Copying"
+            self.additional_descriptions["moving"] = "%s movie clip to destination" % copy_move
             settings.move_file_to_folder_structure(episode, movieclip_association.filepath, new_filename = filename)
             self.additional_descriptions["moving"] = ""
             
@@ -380,7 +386,7 @@ class MultipleMovieClipAssociator(AssignerThread):
             movieclips.add(movieclip_association.movieclip)                  
                     
         self.load_information.emit(episode)
-
+        
 
 class ThumbnailGenerator(WorkerThread):
     thumbnails_created = QtCore.pyqtSignal("PyQt_PyObject")

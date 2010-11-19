@@ -698,7 +698,11 @@ class GettingStartedWidget(QtGui.QWidget):
     def __init__(self, parent = None):
         QtGui.QWidget.__init__(self, parent)
         vbox = QtGui.QVBoxLayout()
-        vbox.addWidget(QtGui.QLabel("Getting started!"))
+        welcome = QtGui.QLabel("Welcome to Diribeo!")
+        font = welcome.font()
+        font.setPointSize(20)
+        welcome.setFont(font);
+        vbox.addWidget(welcome)
         vbox.addStretch(20)
         self.setLayout(vbox)
 
@@ -738,9 +742,6 @@ class LocalSearchDock(QtGui.QDockWidget):
             mainwindow.start_series_adder_wizard()
 
 
-
-
-
 class MultipleAssociationWizard(QtGui.QWizard):
     selection_finished = QtCore.pyqtSignal("PyQt_PyObject")
     
@@ -757,6 +758,8 @@ class MultipleAssociationWizard(QtGui.QWizard):
 
 
 class MultipleAssociationTableModel(QtCore.QAbstractTableModel):
+    YELLOW, RED = 8, 20
+    
     def __init__(self, movieclip_associations, parent=None):
         QtCore.QAbstractTableModel.__init__(self, parent)
         self.movieclip_associations = movieclip_associations
@@ -766,6 +769,14 @@ class MultipleAssociationTableModel(QtCore.QAbstractTableModel):
                                               MovieClipAssociation.ASSOCIATION_GUESSED : "Guessed episode",
                                               MovieClipAssociation.INVALID_FILE : "Invalid file"}
      
+    def skip_every_red_classified(self):
+        for index, movieclip_association in enumerate(self.movieclip_associations):
+            if movieclip_association.message != movieclip_association.INVALID_FILE:
+                episode, score = movieclip_association.get_associated_episode_score()
+                if score >= MultipleAssociationTableModel.RED:
+                    model_index = self.createIndex(index, 2)
+                    self.setData(model_index, Qt.Checked, role = Qt.CheckStateRole)
+    
     def rowCount(self, index):
         return len(self.movieclip_associations)
 
@@ -807,9 +818,9 @@ class MultipleAssociationTableModel(QtCore.QAbstractTableModel):
                 return diribeoutils.get_gradient(QtGui.QColor(Qt.red))
             try:
                 episode, score = movieclip_association.get_associated_episode_score()  
-                if score < 8:
+                if score < MultipleAssociationTableModel.YELLOW:
                     return diribeoutils.get_gradient(QtGui.QColor(Qt.green))
-                elif score < 20:
+                elif score < MultipleAssociationTableModel.RED:
                     return diribeoutils.get_gradient(QtGui.QColor(Qt.yellow))
                 else:
                     return diribeoutils.get_gradient(QtGui.QColor(Qt.red))
@@ -871,10 +882,13 @@ class MultipleAssociationTable(QtGui.QWizardPage):
         self.tableview.horizontalHeader().setResizeMode(QtGui.QHeaderView.ResizeToContents)
         
         vbox = QtGui.QVBoxLayout()
-        self.setLayout(vbox)
-        
+        toolbar = QtGui.QToolBar()
+        all_red_skip = QtGui.QAction("Skip every red classified movie clip", self)
+        all_red_skip.triggered.connect(self.tablemodel.skip_every_red_classified)
+        toolbar.addAction(all_red_skip)
+        vbox.addWidget(toolbar)
         vbox.addWidget(self.tableview)
-            
+        self.setLayout(vbox)        
 
 class ComboBoxDelegate(QtGui.QStyledItemDelegate):
     def __init__(self, movieclip_associations, model,  parent = None):
@@ -1407,6 +1421,8 @@ class MainWindow(QtGui.QMainWindow):
         job.already_exists.connect(diribeomessageboxes.already_exists_warning, Qt.QueuedConnection)
         job.already_exists_in_another.connect(diribeomessageboxes.display_duplicate_warning, Qt.QueuedConnection)
         job.filesystem_error.connect(diribeomessageboxes.filesystem_error_warning, Qt.QueuedConnection)
+        if settings.settings["automatic_thumbnail_creation"]:
+            job.finished.connect(self.generate_thumbnails)
         self.jobs.append(job)
         job.start()
     

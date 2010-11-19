@@ -62,7 +62,7 @@ class MovieClip(object):
         self.thumbnails = []
     
     def __eq__(self, other):
-        if self.checksum == other.checksum:
+        if self.checksum == other.checksum and self.filesize == other.filesize:
             return True
 
     def __repr__(self):
