@@ -2,6 +2,12 @@
 
 Project Manager and Lead Developer: <a href="mailto:david.kaufman@gmx.de">David Kaufman</a>
 
+<br>
+<br>
+The design of this site is an adaption of 
+<a href="http://net.tutsplus.com/tutorials/html-css-techniques/html-5-and-css-3-the-techniques-youll-soon-be-using/">this</a> tutorial. Thanks goes to Mads Kjaer.
+
+
 <br><br>
 <h3>MIT License</h3>
 <pre><code>

@@ -168,6 +168,9 @@ class Settings(object):
 
         self.valid_extensions = ("mkv", "avi", "mpgeg", "mpg", "wmv", "mp4", "mov")
 
+    def __str__(self):
+        return str(self.settings)
+    
     def __getitem__(self, key):
         self.get(key)
         

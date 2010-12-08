@@ -1,17 +1,15 @@
 import bottle
 
-bottle.debug(True)
+#bottle.debug(True)
 
 import currentversion
 
-from bottle import route, view, template
+from bottle import route, view, template, AppEngineServer
+from google.appengine.ext.appstats.recording import appstats_wsgi_middleware
+
 from google.appengine.ext.webapp import util
 
-try:
-	import simplejson as json
-except ImportError:
-	# Make python 2.6 compatible
-	import json
+import simplejson as json 
 
 # Taken from main diribeo app
 def version_to_string(version):
@@ -47,4 +45,4 @@ def default(overview=""):
 	return template("overview", version = edited_version)
 
 
-util.run_wsgi_app(bottle.default_app())
+bottle.run(server=AppEngineServer)

@@ -700,7 +700,7 @@ class GettingStartedWidget(QtGui.QWidget):
         vbox = QtGui.QVBoxLayout()
         welcome = QtGui.QLabel("Welcome to Diribeo!")
         font = welcome.font()
-        font.setPointSize(20)
+        font.setPointSize(15)
         welcome.setFont(font);
         vbox.addWidget(welcome)
         vbox.addStretch(20)
@@ -1019,7 +1019,8 @@ class About(QtGui.QDialog):
         
         self.jobs = jobs
         self.vboxlayout = QtGui.QVBoxLayout()
-        self.update_layout = QtGui.QHBoxLayout()  
+        self.update_layout = QtGui.QHBoxLayout() 
+        self.close_layout = QtGui.QHBoxLayout() 
         self.setLayout(self.vboxlayout)
         diribeo_icon = QtGui.QIcon("images/diribeo_logo.png")
         self.diribeo_button = QtGui.QPushButton()
@@ -1030,13 +1031,19 @@ class About(QtGui.QDialog):
         self.vboxlayout.addWidget(self.diribeo_button)
         self.vboxlayout.addWidget(QtGui.QLabel("Diribeo is an open source application. To get more information about it check out http://www.diribeo.de"))
         self.vboxlayout.addLayout(self.update_layout)
-        
+
         
         self.update_image_label = QtGui.QLabel()
         self.update_label = QtGui.QLabel("Checking for updates ...")
         self.update_layout.addWidget(self.update_image_label)
         self.update_layout.addWidget(self.update_label)
         self.update_layout.addStretch(1)
+        
+        self.close_layout.addStretch(1)
+        self.close_button = QtGui.QPushButton("Close")
+        self.close_button.clicked.connect(self.hide)
+        self.close_layout.addWidget(self.close_button)
+        self.vboxlayout.addLayout(self.close_layout)
         
         self.get_version_update()
 
@@ -1086,20 +1093,20 @@ class SourceSelectionSettings(QtGui.QWidget):
         
         for implementation in settings.get_sources():
             self.implementation_checkboxes[implementation] = current_checkbox = QtGui.QCheckBox()
-            current_checkbox.setChecked(settings.settings["sources"][implementation])
+            current_checkbox.setChecked(settings.get("sources")[implementation])
             self.form_layout.addRow(implementation, current_checkbox)
         
-class AppearanceSettings(QtGui.QWidget):
+class DebuggingSettings(QtGui.QWidget):
     def __init__(self, parent = None):
         QtGui.QWidget.__init__(self, parent)
         
         self.hboxlayout = QtGui.QHBoxLayout()
         self.setLayout(self.hboxlayout)
         
-        self.appearance_settings_groupbox = QtGui.QGroupBox("Appearance")
+        self.debugging_settings_groupbox = QtGui.QGroupBox("Debugging")
         self.form_layout = QtGui.QFormLayout()
-        self.appearance_settings_groupbox.setLayout(self.form_layout)
-        self.hboxlayout.addWidget(self.appearance_settings_groupbox)
+        self.debugging_settings_groupbox.setLayout(self.form_layout)
+        self.hboxlayout.addWidget(self.debugging_settings_groupbox)
         
 class GeneralSettings(QtGui.QWidget):
     def __init__(self, parent = None):
@@ -1170,14 +1177,14 @@ class SettingsEditor(QtGui.QDialog):
         self.stacked_widget.addWidget(self.sources_settings_groupbox)
        
         # Create Appearance Settings Groupbox
-        self.statistic_settings_groupbox = AppearanceSettings()
-        self.stacked_widget.addWidget(self.statistic_settings_groupbox)       
+        self.debugging_settings_groupbox = DebuggingSettings()
+        self.stacked_widget.addWidget(self.debugging_settings_groupbox)       
        
         
         # Build chooser which is at the left side of the window
         self.chooser_toolbar = QtGui.QToolBar()
         self.chooser_toolbar.setOrientation(Qt.Vertical)
-        self.chooser_toolbar.setIconSize(QtCore.QSize(128, 128))
+        self.chooser_toolbar.setIconSize(QtCore.QSize(64, 64))
         
         # Create buttons
         
@@ -1201,16 +1208,16 @@ class SettingsEditor(QtGui.QDialog):
         
         # Statistic settings
         icon_statistic_settings = QtGui.QIcon("images/applications-accessories.png")
-        statistic_settings_button = QtGui.QToolButton()
-        statistic_settings_button.setIcon(icon_statistic_settings)
-        statistic_settings_button.setText("Appearance")
-        statistic_settings_button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
-        statistic_settings_button.clicked.connect(functools.partial(self.stacked_widget.setCurrentWidget, self.statistic_settings_groupbox))
+        debugging_settings_button = QtGui.QToolButton()
+        debugging_settings_button.setIcon(icon_statistic_settings)
+        debugging_settings_button.setText("Debugging")
+        debugging_settings_button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+        debugging_settings_button.clicked.connect(functools.partial(self.stacked_widget.setCurrentWidget, self.debugging_settings_groupbox))
         
         
         self.chooser_toolbar.addWidget(general_settings_button)
         self.chooser_toolbar.addWidget(source_settings_button)
-        self.chooser_toolbar.addWidget(statistic_settings_button)
+        self.chooser_toolbar.addWidget(debugging_settings_button)
         
         self.default_settings_button = QtGui.QPushButton('Reset to default settings', self)
         self.default_settings_button.clicked.connect(self.reset_settings)
@@ -1250,10 +1257,9 @@ class SettingsEditor(QtGui.QDialog):
         
         settings["deployment_folder"] = str(self.general_settings_groupbox.deployment_folder_edit.text())
         
-        
         # Handle Source Settings
         checkbox_dict = self.sources_settings_groupbox.implementation_checkboxes
-        settings.settings["sources"] = dict([[implementation, bool(checkbox_dict[implementation].checkState())] for implementation in  checkbox_dict])
+        settings["sources"] = dict([[implementation, bool(checkbox_dict[implementation].checkState())] for implementation in  checkbox_dict])
         
         self.hide()
 
@@ -1421,7 +1427,7 @@ class MainWindow(QtGui.QMainWindow):
         job.already_exists.connect(diribeomessageboxes.already_exists_warning, Qt.QueuedConnection)
         job.already_exists_in_another.connect(diribeomessageboxes.display_duplicate_warning, Qt.QueuedConnection)
         job.filesystem_error.connect(diribeomessageboxes.filesystem_error_warning, Qt.QueuedConnection)
-        if settings.settings["automatic_thumbnail_creation"]:
+        if settings.get("automatic_thumbnail_creation"):
             job.finished.connect(self.generate_thumbnails)
         self.jobs.append(job)
         job.start()

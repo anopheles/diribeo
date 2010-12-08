@@ -7,10 +7,9 @@ from google.appengine.ext import db
 
 import urllib2
 
-try:
-    import simplejson as json
-except ImportError:
-    import json
+
+import simplejson as json 
+
     
 
 class Version(db.Model):
