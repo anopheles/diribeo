@@ -947,6 +947,7 @@ class SeriesAdderWizard(QtGui.QWizard):
         self.online_search = OnlineSearch(jobs)
         self.addPage(self.online_search)
         self.accepted.connect(self.wizard_complete)
+        self.setWindowTitle('Add Series') 
     
     def wizard_complete(self):
         self.selection_finished.emit(self.online_search.onlineserieslist.selectedItems())
@@ -1013,7 +1014,7 @@ class WaitingWidget(QtGui.QWidget):
  
 class About(QtGui.QDialog):
     def __init__(self, jobs, parent = None):
-        QtGui.QDialog.__init__(self, parent) 
+        QtGui.QDialog.__init__(self, parent)
         diribeoutils.resize_to_percentage(self, 25) 
         self.setWindowTitle('About') 
         
@@ -1119,6 +1120,7 @@ class GeneralSettings(QtGui.QWidget):
         self.hboxlayout.addWidget(self.general_settings_groupbox)
         
         self.form_layout = QtGui.QFormLayout()
+        
         self.general_settings_groupbox.setLayout(self.form_layout)
         
         self.copy_associated_movieclips_checkbox = QtGui.QCheckBox()
@@ -1139,7 +1141,7 @@ class GeneralSettings(QtGui.QWidget):
         
         self.number_of_thumbnails_edit = QtGui.QLineEdit(str(settings.get("number_of_thumbnails")))
         
-        self.deployment_folder_edit = QtGui.QLineEdit(str(settings.get("deployment_folder")))
+        self.deployment_folder_edit = DirectoryChooser(str(settings.get("deployment_folder")))
 
         
         self.form_layout.addRow("Copy assoicated movieclips", self.copy_associated_movieclips_checkbox)
@@ -1149,9 +1151,27 @@ class GeneralSettings(QtGui.QWidget):
         self.form_layout.addRow("Hash movieclips", self.hash_movieclips_checkbox)
         self.form_layout.addRow("Number of thumbnails created", self.number_of_thumbnails_edit)
         self.form_layout.addRow("Deployment folder", self.deployment_folder_edit)
+        
+                                   
 
-
-
+class DirectoryChooser(QtGui.QWidget):
+    def __init__(self, default_text, parent = None):
+        QtGui.QWidget.__init__(self, parent)
+        self.hboxlayout = QtGui.QHBoxLayout()
+        self.setLayout(self.hboxlayout)
+        self.directory_text_edit = QtGui.QLineEdit(default_text)
+        self.directory_chooser_button = QtGui.QPushButton(QtGui.QIcon("images/document-open.png"), "")
+        self.directory_chooser_button.clicked.connect(self.assign_new_dir)
+        self.hboxlayout.addWidget(self.directory_text_edit)
+        self.hboxlayout.addWidget(self.directory_chooser_button)    
+    
+    def assign_new_dir(self):
+        dir = QtGui.QFileDialog.getExistingDirectory(caption="Choose your new deployment folder")
+        self.directory_text_edit.setText(dir)
+    
+    def text(self):
+        return self.directory_text_edit.text()
+    
 class SettingsEditor(QtGui.QDialog):
     def __init__(self, parent = None):
         QtGui.QDialog.__init__(self, parent)
@@ -1225,13 +1245,14 @@ class SettingsEditor(QtGui.QDialog):
         self.view_layout.addWidget(self.chooser_toolbar)
         self.view_layout.addWidget(self.stacked_widget)
         
-        self.okay_button = QtGui.QPushButton("Save settings")
-        self.okay_button.pressed.connect(self.save_settings)
+        self.save_button = QtGui.QPushButton("Save settings")
+        self.save_button.pressed.connect(self.save_settings)
         self.cancel_button = QtGui.QPushButton("Discard changes")
         self.cancel_button.pressed.connect(self.hide)
         
         self.button_layout.addStretch(1)
-        self.button_layout.addWidget(self.okay_button)
+        self.button_layout.addWidget(self.save_button)
+        self.save_button.setDefault(True)
         self.button_layout.addWidget(self.cancel_button)
         
         self.main_layout.addLayout(self.view_layout)
@@ -1349,17 +1370,17 @@ class MainWindow(QtGui.QMainWindow):
         self.save_settings()
     
     def start_about(self):
-        about = About(self.jobs)
-        about.show()
+        about = About(self.jobs, parent=self)        
+        about.show()        
         about.exec_()
     
     def start_settings_editor(self):
-        settings = SettingsEditor()
+        settings = SettingsEditor(parent=self)
         settings.show()
         settings.exec_()
     
     def start_series_adder_wizard(self):
-        wizard = SeriesAdderWizard(self.jobs)
+        wizard = SeriesAdderWizard(self.jobs, parent=self)
         wizard.selection_finished.connect(self.load_items_into_table)             
         wizard.show()
         wizard.exec_()
@@ -1377,7 +1398,7 @@ class MainWindow(QtGui.QMainWindow):
     
     
     def start_multiple_association_wizard(self, movieclip_associations):
-        wizard = MultipleAssociationWizard(movieclip_associations)
+        wizard = MultipleAssociationWizard(movieclip_associations, parent=self)
         wizard.show()
         wizard.exec_()
     
@@ -1395,7 +1416,7 @@ class MainWindow(QtGui.QMainWindow):
         
     
     def start_association_wizard(self, filepath, episodes, movieclip):
-        association_wizard = AssociationWizard(episodes, os.path.basename(filepath))
+        association_wizard = AssociationWizard(episodes, os.path.basename(filepath), parent=self)
         association_wizard.selection_finished.connect(functools.partial(self.add_movieclip_to_episode, filepath, movieclip = movieclip), Qt.QueuedConnection)
         association_wizard.show()
         association_wizard.exec_()
