@@ -274,7 +274,8 @@ class VersionChecker(WorkerThread):
     def run(self):
         self.waiting.emit()
         try:
-            content = urllib2.urlopen("http://diribeo.de/tasks/currentversion").read()
+            # TODO
+            content = urllib2.urlopen("http://diribeo.de/tasks/currentversion_v1").read()
             version = tuple(json.loads(content)["version"])
             self.finished.emit(version)
         except urllib2.URLError:

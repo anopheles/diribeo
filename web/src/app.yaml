@@ -13,7 +13,7 @@ handlers:
 - url: /.views
   static_dir: .views
 
-- url: /tasks/updateversion
+- url: /tasks/updateversion_v1
   script: updateversion.py
   login: admin
 

@@ -19,9 +19,9 @@ def version_to_string(version):
 version = currentversion.return_version()
 edited_version = version_to_string(version)
 	
-@route("/tasks/currentversion")
+@route("/tasks/currentversion_v1")
 def currentversion():
-	return template("currentversion", version = version)
+	return template("currentversion_v1", version = version)
 
 @route("/contribute")
 def contribute():
