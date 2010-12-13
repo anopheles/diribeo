@@ -13,6 +13,7 @@ import subprocess
 import functools
 import collections
 import multiprocessing
+import datetime
 
 import diribeomessageboxes
 import diribeomodel
@@ -24,17 +25,20 @@ from diribeomodel import Series, Episode, MovieClipAssociation, Settings
 from diribeoworkers import SeriesSearchWorker, ModelFiller, MultipleMovieClipAssociator, ThumbnailGenerator, MultipleAssignerThread, MovieUpdater, VersionChecker
 
 
-from PyQt4 import QtGui
+from PyQt4 import QtGui, QtSvg
 from PyQt4 import QtCore
 from PyQt4.QtCore import Qt
 
 
 HOMEPAGE = "http://www.diribeo.de"
+MAINWINDOW_PERCENTAGE = 75
+SUBWINDOW_PERCENTAGE = 50 
+THUMBNAIL_WIDTH = 150 
 
 
 # Initialize logger
 log_filename = "logger_output.out"
-log.basicConfig(filename=log_filename,  format='%(asctime)s %(levelname)s %(message)s', level=log.DEBUG, filemode='w')
+#log.basicConfig(filename=log_filename,  format='%(asctime)s %(levelname)s %(message)s', level=log.DEBUG, filemode='w')
 
 
 class WorkerThreadManager(object):
@@ -205,9 +209,7 @@ class EpisodeTableModel(QtCore.QAbstractTableModel):
 
 class LocalTreeWidget(QtGui.QTreeWidget):
     def __init__(self, parent=None):
-        QtGui.QTreeWidget.__init__(self, parent)     
-        
-        
+        QtGui.QTreeWidget.__init__(self, parent)      
         self.setSelectionMode(QtGui.QAbstractItemView.SingleSelection)
         self.viewport().setAcceptDrops(True)
         self.setDropIndicatorShown(True)
@@ -298,6 +300,123 @@ class LocalSearch(QtGui.QFrame):
                 self.build_subtree(toplevelitem)
 
 
+
+class PixmapCache(object):
+    
+    def __init__(self):
+        self.pixmaps = {}
+    
+    def get_pixmap(self, filepath):
+        try:
+            return self.pixmaps[filepath]
+        except KeyError:
+            qimage = QtGui.QImage(filepath)
+            pixmap = QtGui.QPixmap.fromImage(qimage)
+            pixmap = pixmap.scaledToWidth(THUMBNAIL_WIDTH)
+            self.pixmaps[filepath] = pixmap
+            return pixmap
+
+
+
+class MoviePicture(QtGui.QWidget):    
+    
+    MAXWIDTH = 300
+    
+    def __init__(self, parent = None):
+        QtGui.QWidget.__init__(self, parent)        
+        self.layout = QtGui.QVBoxLayout()
+        self.label = QtGui.QLabel()
+        self.placeholder = QtGui.QPixmap("images/placeholder.png")
+        self.label.setPixmap(self.placeholder)
+        self.layout.addWidget(self.label)        
+        self.setLayout(self.layout)
+        self.setAcceptDrops(True)
+        self.movie = None
+        
+        self.delete_all_button = QtGui.QPushButton( QtGui.QIcon("images/process-stop.png"), "")
+        self.delete_all_button.clicked.connect(self.delete_all)
+        self.delete_all_button.setVisible(False)
+        self.layout.addWidget(self.delete_all_button)
+    
+    
+    def delete_all(self):
+        self.movie.pictures = []
+        self.delete_all_button.setVisible(False)
+        self.load_picture()    
+    
+    def setPicture(self, filepath):
+        self.movie.pictures.append(filepath)
+        pixmap = QtGui.QPixmap(filepath)
+        pixmap = pixmap.scaledToWidth(self.MAXWIDTH)
+        self.delete_all_button.setVisible(True)
+        self.label.setPixmap(pixmap)
+    
+    def load_picture(self):
+        try:
+            self.setPicture(self.movie.pictures[0])
+        except IndexError:
+            self.delete_all_button.setVisible(False)
+            self.label.setPixmap(self.placeholder)
+        
+    def dropEvent(self, event):
+        self.setPicture(event.mimeData().text())
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasFormat('application/x-fridgemagnet'):
+            if event.source() in self.children():
+                event.setDropAction(QtCore.Qt.MoveAction)
+                event.accept()
+            else:
+                event.acceptProposedAction()
+        elif event.mimeData().hasText():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+
+class ThumbnailWidget(QtGui.QWidget):
+    
+    def __init__(self, filepath, timecode, parent = None):
+        QtGui.QWidget.__init__(self, parent)
+        self.filepath = filepath
+        self.layout = QtGui.QHBoxLayout()
+        self.label = QtGui.QLabel()
+        self.label.setPixmap(pixmap_cache.get_pixmap(filepath))
+        minutes, seconds = divmod(timecode, 60)
+        self.label.setToolTip("<img src= '"+ filepath +"'><br>" + str(minutes) + ":" + str(seconds) + " minutes in")
+        self.layout.addWidget(self.label)
+        self.setLayout(self.layout)   
+    
+    
+    def mousePressEvent(self, event):
+                
+        child = self.childAt(event.pos())
+        if not child:
+            return
+            
+        itemData = QtCore.QByteArray()
+        dataStream = QtCore.QDataStream(itemData, QtCore.QIODevice.WriteOnly)
+        dataStream << QtCore.QPoint(event.pos() - self.rect().topLeft())
+    
+        mimeData = QtCore.QMimeData()
+        mimeData.setData('application/x-fridgemagnet', itemData)
+        mimeData.setText(self.filepath)
+        
+        image = QtGui.QPixmap.grabWidget(self, 0, 0, self.width(), self.height())
+    
+        drag = QtGui.QDrag(self)
+        drag.setMimeData(mimeData)
+        drag.setHotSpot(event.pos() - self.rect().topLeft())
+        drag.setPixmap(image)
+    
+        self.hide()
+    
+        if drag.exec_(QtCore.Qt.MoveAction | QtCore.Qt.CopyAction, QtCore.Qt.CopyAction) == QtCore.Qt.MoveAction:
+            self.close()
+        else:
+            self.show()
+
+
 class MovieClipInformationWidget(QtGui.QFrame):
     
     update = QtCore.pyqtSignal("PyQt_PyObject")
@@ -341,16 +460,10 @@ class MovieClipInformationWidget(QtGui.QFrame):
             self.control_layout.addWidget(self.open_button)
             self.control_layout.addWidget(self.thumbnail_button)
             
-            for index, filepath in enumerate(self.movieclip.thumbnails):
+            for index, (filepath, timecode) in enumerate(self.movieclip.thumbnails):               
                 if os.path.exists(filepath):
-                    temp_label = QtGui.QLabel()
-                    qimage = QtGui.QImage(filepath)
-                    pixmap = QtGui.QPixmap.fromImage(qimage)
-                    pixmap = pixmap.scaledToWidth(100)
-                    
-                    temp_label.setPixmap(pixmap)
-                    temp_label.setToolTip("<img src= '"+ filepath +"'>")
-                    self.thumbnail_gridlayout.addWidget(temp_label, index/2, index % 2)
+                    thumbnail_widget = ThumbnailWidget(filepath, timecode)
+                    self.thumbnail_gridlayout.addWidget(thumbnail_widget, index/2, index % 2)
         
         self.control_layout.addWidget(self.remove_button)
         
@@ -365,40 +478,6 @@ class MovieClipInformationWidget(QtGui.QFrame):
         self.thumbnail_button.clicked.connect(functools.partial(mainwindow.generate_thumbnails, self.movie, self.movieclip))
         
         self.load_information(movieclip)        
-
-    def mousePressEvent(self, event):
-        #TODO
-        
-        child = self.childAt(event.pos())
-        if not child:
-            return
-        
-        print type(event)
-        print child, child.text()
-            
-        itemData = QtCore.QByteArray()
-        dataStream = QtCore.QDataStream(itemData, QtCore.QIODevice.WriteOnly)
-        dataStream << self.title.text() << QtCore.QPoint(event.pos() - self.rect().topLeft())
-
-        mimeData = QtCore.QMimeData()
-        mimeData.setData('application/x-fridgemagnet', itemData)
-        mimeData.setText(self.title.text())
-        
-        image = QtGui.QPixmap.grabWidget(self, 0, 0, self.width(), self.height())
-    
-        drag = QtGui.QDrag(self)
-        drag.setMimeData(mimeData)
-        drag.setHotSpot(event.pos() - self.rect().topLeft())
-        drag.setPixmap(image)
-
-        self.hide()
-
-        if drag.exec_(QtCore.Qt.MoveAction | QtCore.Qt.CopyAction, QtCore.Qt.CopyAction) == QtCore.Qt.MoveAction:
-            print "close"
-            self.close()
-        else:
-            print "show"
-            self.show()
 
     def open_folder(self):
         folder = self.movieclip.get_folder()
@@ -427,6 +506,7 @@ class MovieClipInformationWidget(QtGui.QFrame):
                 os.startfile(filepath) # Unix systems do not have startfile
             except AttributeError:
                 subprocess.Popen(['xdg-open', filepath])
+                
 
 class MovieClipOverviewWidget(QtGui.QWidget):
     def __init__(self, parent = None, movieclips = None):
@@ -435,7 +515,7 @@ class MovieClipOverviewWidget(QtGui.QWidget):
         self.setLayout(self.vbox)        
         self.movieclipinfos = []   
         open_folder_icon = QtGui.QIcon("images/plus.png")
-        self.open_folder_button = QtGui.QPushButton(open_folder_icon, "To add a movie clip drag it here or simply click this button")
+        self.open_folder_button = QtGui.QPushButton(open_folder_icon, "To add movie clip drag here or click button")
         self.vbox.addWidget(self.open_folder_button)
         self.movie = None
     
@@ -467,7 +547,7 @@ class MovieClipOverviewWidget(QtGui.QWidget):
 
 
 class SeriesInformationCategory(QtGui.QWidget):
-    def __init__(self, label_name, type = QtGui.QLabel, spacing = 25, default = "-", disabled = False, parent = None):
+    def __init__(self, label_name, type = QtGui.QLabel, font_size = None, spacing = 25, default = "-", disabled = False, parent = None):
         QtGui.QWidget.__init__(self, parent)        
         
         self.layout = QtGui.QVBoxLayout()
@@ -476,6 +556,8 @@ class SeriesInformationCategory(QtGui.QWidget):
         self.default = default
         self.title_label = QtGui.QLabel(label_name)
         default_font = self.title_label.font()
+        if font_size is not None:
+            default_font.setPointSize(font_size)
         default_font.setBold(True)       
         self.title_label.setFont(default_font)
         
@@ -505,6 +587,9 @@ class SeriesInformationCategory(QtGui.QWidget):
 
 
 class SeriesInformationControls(QtGui.QWidget):
+    
+    next = QtCore.pyqtSignal("PyQt_PyObject")
+    
     def __init__(self, parent = None):
         QtGui.QWidget.__init__(self, parent)
         header_layout = QtGui.QHBoxLayout()    
@@ -512,36 +597,226 @@ class SeriesInformationControls(QtGui.QWidget):
         self.update_button = QtGui.QPushButton("Update")
         self.delete_button = QtGui.QPushButton("Delete")
         self.goto_series_button = QtGui.QPushButton("Go to Series")
+        self.goto_other_view = QtGui.QPushButton(QtGui.QIcon("images/view-refresh.png"), "")
+        self.goto_other_view.clicked.connect(self.next.emit)
         
         header_layout.addWidget(self.delete_button)
         header_layout.addWidget(self.update_button)
         header_layout.addWidget(self.goto_series_button)
+        header_layout.addWidget(self.goto_other_view)
         self.setLayout(header_layout)
 
-class SeriesInformationWidget(QtGui.QStackedWidget):
+
+
+class NavigationWidget(QtGui.QWidget):
     
     def __init__(self, parent = None):
-        QtGui.QStackedWidget.__init__(self, parent)              
+        QtGui.QWidget.__init__(self, parent)
+        self.layout = QtGui.QHBoxLayout()
+        self.setLayout(self.layout)
+        self.build_images()
+        self.type_label = QtGui.QLabel("")
+        self.layout.addWidget(self.type_label)
+    
+    
+    def build_images(self):
+        self.images = {}
+        self.images["episode"] = diribeoutils.create_fancy_image("Episode")
+        self.images["series"] = diribeoutils.create_fancy_image("Series")
         
-        self.main_widget = QtGui.QWidget()        
+    
+    def changeType(self, movie):
+        if isinstance(movie, Episode):
+            self.type_label.setPixmap(self.images["episode"])
+        else:
+            self.type_label.setPixmap(self.images["series"])
+        
+
+class EpisodeOverviewWidget(QtGui.QWidget):    
+    def __init__(self, parent = None):
+        QtGui.QWidget.__init__(self, parent)
+        
+        self.stacked_widget = QtGui.QStackedWidget() 
+        
+        self.tableview = EpisodeTableWidget(self)
+        self.series_information_dock = SeriesInformationDock(self.tableview )        
+        self.waiting_widget = WaitingWidget() 
+        self.getting_started_widget = GettingStartedWidget() 
+        
+        self.stacked_widget.addWidget(self.series_information_dock)
+        self.stacked_widget.addWidget(self.waiting_widget)
+        self.stacked_widget.addWidget(self.getting_started_widget)
+        
+        self.stacked_widget.setCurrentWidget(self.getting_started_widget)
+        
+        vbox = QtGui.QVBoxLayout()
+        vbox.addWidget(self.stacked_widget)
+        self.setLayout(vbox)
+
+
+
+
+
+
+class TimelineWidget(QtGui.QLabel):
+    
+    def __init__(self, parent = None):
+        QtGui.QLabel.__init__(self, parent)
+        self.setMinimumSize(1, 30)
+
+    
+    def set_dates(self, begin_date, end_date, episode_dates = None):
+        self.begin_date = begin_date
+        self.end_date = end_date
+        self.episode_dates = episode_dates
+        self.update()
+    
+    def paintEvent(self, event):
+        size = self.size()
+        
+        width = size.width()
+        height = self.height() 
+        tick_height = 5    
+        spacing = 0
+        
+        paint = QtGui.QPainter()        
+        paint.begin(self)
+        paint.setRenderHint(QtGui.QPainter.Antialiasing)
+        
+        pen = QtGui.QPen()
+        pen.setWidth(2)
+        pen.setJoinStyle(Qt.RoundJoin)
+        paint.setPen(pen)
+        
+        pen.setWidth(2)
+        
+        #draw timeline
+        paint.drawLine(spacing,height,width,height)
+        
+        #draw ticks
+        paint.drawLine(spacing,height+tick_height,spacing,height-tick_height)
+        paint.drawLine(width,height+tick_height,width,height-tick_height)
+    
+        #draw dates
+        paint.setPen(QtGui.QColor("black"))
+        paint.drawText(QtCore.QPoint(0,height/2), str(self.begin_date))
+        paint.drawText(QtCore.QPoint(width-2*spacing,height/2), str(self.end_date))    
+        
+        
+        
+        #calculate number of days in beetween
+        total_days = (self.end_date-self.begin_date).days
+        reference = self.find_new_years_eve(self.begin_date, self.end_date)
+        
+        step_size = float(width-spacing)/total_days
+        for year, day_sum in reference:      
+            x = spacing+int(step_size*day_sum)
+            paint.drawLine(x,height+tick_height,x,height-tick_height)
+            paint.drawText(QtCore.QPoint(x,height/2), str(year))
+        
+        
+        #draw episode dates
+        try:
+            for episode_days in self.episode_dates:
+                episode_days = (episode_days-self.begin_date).days
+                x = spacing+int(step_size*episode_days)
+                paint.setPen(QtGui.QColor("red"))
+                paint.drawLine(x,height+tick_height,x,height-tick_height)
+        except TypeError:
+            pass        
+        
+        #end painting
+        paint.end()
+
+    def find_new_years_eve(self, begin_date, end_date):
+        
+        assert begin_date < end_date
+        
+        output = []
+        current_date = begin_date
+        summed_dates = 0
+        
+        while True:
+            if current_date.year < end_date.year:
+                first = datetime.date(current_date.year+1, 1, 1)
+                summed_dates += (first-current_date).days
+                output.append([current_date.year, summed_dates])
+                current_date = first
+            else:
+                break
+            
+        return output            
+            
+class SeriesInformationWidget(QtGui.QWidget):
+    
+    def __init__(self, tableview, parent = None):
+        QtGui.QWidget.__init__(self, parent)              
+        
+        self.tableview = tableview
+        self.navigation_widget = NavigationWidget(self)
+        
+        self.stacked_widget = QtGui.QStackedWidget()        
+        
+        self.main_layout = QtGui.QVBoxLayout()
+        self.control_layout = QtGui.QHBoxLayout()
+        self.attribute_layout = QtGui.QHBoxLayout()
+        
+        self.ultra_left_column = QtGui.QVBoxLayout()
+        self.left_column = QtGui.QVBoxLayout()
+        self.right_column = QtGui.QVBoxLayout()
+
+        self.attribute_layout.addLayout(self.ultra_left_column)
+        self.attribute_layout.addLayout(self.left_column)
+        #self.attribute_layout.addSpacing(20)
+        self.attribute_layout.addLayout(self.right_column)        
+        
+        self.setLayout(self.main_layout)
+        
+        self.main_widget = QtGui.QWidget()       
         main_widget_layout = QtGui.QVBoxLayout()
-        main_widget_layout.setSizeConstraint(QtGui.QLayout.SetFixedSize)
+        #main_widget_layout.setSizeConstraint(QtGui.QLayout.SetFixedSize)
         self.main_widget.setLayout(main_widget_layout)
+        main_widget_layout.addLayout(self.attribute_layout)
         
-        self.seenit = SeriesInformationCategory("Seen it?", type = QtGui.QCheckBox, disabled = True)
+        self.seenit = SeriesInformationCategory("Seen it?", type = QtGui.QCheckBox)
         self.title = SeriesInformationCategory("Title", type = SeriesInformationControls)
         self.movieclipwidget = SeriesInformationCategory("Movie Clips", type = MovieClipOverviewWidget)
         self.source = SeriesInformationCategory("Source")        
         self.director = SeriesInformationCategory("Director")
         self.rating = SeriesInformationCategory("Ratings")
         self.airdate = SeriesInformationCategory("Air Date")
-        self.plot = SeriesInformationCategory("Plot", type = QtGui.QTextEdit, disabled = True)
+        self.plot = SeriesInformationCategory("Plot", type = QtGui.QTextEdit)
         self.genre = SeriesInformationCategory("Genre")
+        self.timeline = TimelineWidget()
         
-        self.main_widgets = [self.title, self.seenit, self.movieclipwidget, self.director, self.source, self.rating, self.airdate, self.plot, self.genre]
         
-        for widget in self.main_widgets:
-            main_widget_layout.addWidget(widget)
+        self.control_layout.addWidget(self.title)
+        self.control_layout.addStretch(1)
+        self.control_layout.addWidget(self.navigation_widget)
+        
+        self.main_layout.addLayout(self.control_layout)        
+        self.main_layout.addWidget(self.timeline)
+        self.main_layout.addWidget(self.stacked_widget)
+        
+        self.main_widgets = [self.seenit, self.director, self.plot, self.genre, self.source, self.rating, self.airdate]
+        
+        self.title.content.next.connect(self.next)
+        
+        self.movie_picture = MoviePicture()
+        
+        self.ultra_left_column.addWidget(self.movie_picture)
+        
+        for index, widget in enumerate(self.main_widgets):
+            if index % 2 == 0 or True:
+                self.left_column.addWidget(widget)
+            else:
+                self.right_column.addWidget(widget)
+        
+        self.right_column.addWidget(self.movieclipwidget)
+        
+        self.ultra_left_column.addStretch(1)
+        self.left_column.addStretch(1)
+        self.right_column.addStretch(1)
         
         self.nothing_to_see_here_widget = QtGui.QWidget()
         
@@ -549,42 +824,74 @@ class SeriesInformationWidget(QtGui.QStackedWidget):
         self.update_button = self.title.content.update_button
         self.goto_series_button = self.title.content.goto_series_button
         
-        self.addWidget(self.main_widget)
-        self.addWidget(self.nothing_to_see_here_widget)
+        self.stacked_widget.addWidget(self.main_widget)
+        self.stacked_widget.addWidget(self.nothing_to_see_here_widget)
+        self.stacked_widget.addWidget(self.tableview)
         
-        self.setCurrentWidget(self.nothing_to_see_here_widget)
+        self.stacked_widget.setCurrentWidget(self.nothing_to_see_here_widget)
         
+        self.plot.content.textChanged.connect(self.save_plot)
+        self.seenit.content.clicked.connect(self.save_seen_it)
+        self.update_button_text()                                     
+                     
         self.setAcceptDrops(True)
+            
+    def reload(self):
+        self.load_information(self.movie)        
+        
+    def update_button_text(self):
+        if self.stacked_widget.currentWidget() is self.tableview:
+            self.title.content.goto_other_view.setText("Detailed Information")
+        else:
+            self.title.content.goto_other_view.setText("Table View")
+    
+    def next(self):
+        if self.stacked_widget.currentWidget() is not self.tableview:
+            self.stacked_widget.setCurrentWidget(self.tableview)
+        else:
+            self.stacked_widget.setCurrentWidget(self.main_widget)
+            self.load_information(self.movie)
+        self.update_button_text() 
+        
+    def save_seen_it(self):
+        self.movie.seen_it = self.seenit.content.checkState()
+    
+    def save_plot(self):
+        self.movie.plot = self.plot.content.toPlainText()
  
     def clear_all_info(self):
-        self.setCurrentWidget(self.nothing_to_see_here_widget)
+        self.stacked_widget.setCurrentWidget(self.nothing_to_see_here_widget)
 
     def load_information(self, movie):
-        print "loading information"
+        print "loading", movie
+                
         self.movie = movie
         
-        self.setCurrentWidget(self.main_widget)
-
-        try:
-            self.plot.content.textChanged.disconnect()
-        except TypeError:
-            pass
+        self.movie_picture.movie = movie
+        self.movie_picture.load_picture()
+        
+        self.navigation_widget.changeType(movie)
+        
+        if self.stacked_widget.currentWidget() != self.tableview:
+            self.stacked_widget.setCurrentWidget(self.main_widget)
             
         if isinstance(self.movie, Series):
             self.delete_button.setVisible(True)
             self.goto_series_button.setVisible(False)
-            self.plot.setVisible(False)
             self.rating.setVisible(False)
             self.seenit.setVisible(False)
+            begin_date, end_date = movie.get_episode_date_range()
+            episode_dates = [episode.date for episode in movie.episodes if episode.date != None] # potential slow operation
         else:
             self.rating.setVisible(True)
             self.rating.setText(movie.get_ratings())
             self.plot.setText(movie.plot)
-            self.plot.setVisible(True)
             self.delete_button.setVisible(False)
             self.goto_series_button.setVisible(True)
             self.seenit.setVisible(True)
             self.seenit.content.setChecked(self.movie.seen_it)
+            begin_date, end_date = movie.get_series().get_episode_date_range()
+            episode_dates = [movie.date]
         
         # Handle the title
         try:
@@ -595,6 +902,7 @@ class SeriesInformationWidget(QtGui.QStackedWidget):
         self.director.setText(movie.director) 
         self.airdate.setText(str(movie.date))
         self.genre.setText(movie.genre)
+        self.plot.setText(movie.plot)
         self.source.setText(movie.identifier.keys()[0])
         
         try:
@@ -618,7 +926,10 @@ class SeriesInformationWidget(QtGui.QStackedWidget):
         self.goto_series_button.clicked.connect(functools.partial(mainwindow.load_series_info_from_episode, movie))
         
                 
-        self.movieclipwidget.content.load_movieclips(movie)   
+        self.movieclipwidget.content.load_movieclips(movie)
+        
+        self.timeline.set_dates(begin_date, end_date, episode_dates=episode_dates)
+          
         
     def dragEnterEvent(self, event):
         event.acceptProposedAction()
@@ -643,11 +954,13 @@ class EpisodeTableWidget(QtGui.QTableView):
         QtGui.QTableView.__init__(self, parent)
         
         self.overview = overview
+        
         self.verticalHeader().setDefaultSectionSize(125)
         self.horizontalHeader().setStretchLastSection(True)
         self.setShowGrid(False)
         self.setSelectionBehavior(QtGui.QTableView.SelectRows)
         self.setAcceptDrops(True)
+        self.horizontalHeader().setResizeMode(QtGui.QHeaderView.ResizeToContents)
 
 
     def dragEnterEvent(self, event):
@@ -669,30 +982,14 @@ class EpisodeTableWidget(QtGui.QTableView):
                 QtGui.QTableView.setModel(self, model)               
                 model.dataChanged.connect(self.callback)
                 self.selectionModel().selectionChanged.connect(self.callback)
-                self.overview.stacked_widget.setCurrentWidget(self)
+                self.overview.stacked_widget.setCurrentWidget(self.overview.series_information_dock)
+                self.overview.series_information_dock.seriesinfo.load_information(model.series)
             else:
                 self.overview.stacked_widget.setCurrentWidget(self.overview.waiting_widget)
 
-        except AttributeError:
+        except AttributeError:            
             self.overview.stacked_widget.setCurrentWidget(self.overview.getting_started_widget)
-
-class EpisodeOverviewWidget(QtGui.QWidget):    
-    def __init__(self, parent = None):
-        QtGui.QWidget.__init__(self, parent)
-        
-        self.stacked_widget = QtGui.QStackedWidget() 
-        
-        self.tableview = EpisodeTableWidget(self)        
-        self.waiting_widget = WaitingWidget() 
-        self.getting_started_widget = GettingStartedWidget() 
-        
-        self.stacked_widget.addWidget(self.tableview)
-        self.stacked_widget.addWidget(self.waiting_widget)
-        self.stacked_widget.addWidget(self.getting_started_widget)
-        
-        vbox = QtGui.QVBoxLayout()
-        vbox.addWidget(self.stacked_widget)
-        self.setLayout(vbox)
+            
 
 class GettingStartedWidget(QtGui.QWidget):
     def __init__(self, parent = None):
@@ -708,16 +1005,16 @@ class GettingStartedWidget(QtGui.QWidget):
 
 
 class SeriesInformationDock(QtGui.QDockWidget):
-    def __init__(self, parent = None):
+    def __init__(self, tableview, parent = None):
         QtGui.QDockWidget.__init__(self, parent)
-        self.seriesinfo = SeriesInformationWidget() 
+        self.seriesinfo = SeriesInformationWidget(tableview) 
         scrollArea = QtGui.QScrollArea()
-        scrollArea.setWidgetResizable(True)
-        #scrollArea.setMinimumWidth(325) # TODO
         scrollArea.setWidget(self.seriesinfo)
+        scrollArea.setWidgetResizable(True)
         self.setWidget(scrollArea)
         self.setWindowTitle("Additional Information")
-        self.setFeatures(QtGui.QDockWidget.DockWidgetMovable | QtGui.QDockWidget.DockWidgetFloatable)
+        self.setFeatures(QtGui.QDockWidget.NoDockWidgetFeatures)
+        
 
             
 class LocalSearchDock(QtGui.QDockWidget):
@@ -748,12 +1045,13 @@ class MultipleAssociationWizard(QtGui.QWizard):
     def __init__(self, movieclip_associations, parent = None):
         QtGui.QWizard.__init__(self, parent)    
         self.movieclip_associations = movieclip_associations
-        diribeoutils.resize_to_percentage(self, 50) 
+        diribeoutils.resize_to_percentage(self, SUBWINDOW_PERCENTAGE) 
         self.addPage(MultipleAssociationTable(movieclip_associations))
         self.accepted.connect(self.wizard_complete)
     
     def wizard_complete(self):        
-        filtered_movieclip_associations = [movieclip_asssociation for movieclip_asssociation in self.movieclip_associations if not movieclip_asssociation.skip]        
+        filtered_movieclip_associations = [movieclip_asssociation for movieclip_asssociation in self.movieclip_associations if not movieclip_asssociation.skip]  
+        print filtered_movieclip_associations      
         mainwindow.add_movieclip_associations_to_episodes(filtered_movieclip_associations)
 
 
@@ -855,7 +1153,7 @@ class MultipleAssociationTableModel(QtCore.QAbstractTableModel):
         
         if role == Qt.EditRole:
             if index.column() == 3:
-                movieclip_association.episode_list_reference = value
+                movieclip_association.episode_scores_list_reference = value
                 self.dataChanged.emit(self.index(index.row(), 0), self.index(index.row(), 3))
                 return True
         return False
@@ -947,7 +1245,8 @@ class SeriesAdderWizard(QtGui.QWizard):
         self.online_search = OnlineSearch(jobs)
         self.addPage(self.online_search)
         self.accepted.connect(self.wizard_complete)
-        self.setWindowTitle('Add Series') 
+        self.setWindowTitle('Add Series')
+        diribeoutils.resize_to_percentage(self, SUBWINDOW_PERCENTAGE) 
     
     def wizard_complete(self):
         self.selection_finished.emit(self.online_search.onlineserieslist.selectedItems())
@@ -962,7 +1261,7 @@ class OnlineSearch(QtGui.QWizardPage):
         onlinelayout = QtGui.QVBoxLayout(self)
         self.setTitle("Online Search")
         self.setSubTitle("This is a ...")
-        self.setLayout(onlinelayout)   
+        self.setLayout(onlinelayout)
 
         onlinesearchlabel = QtGui.QLabel("Serie's title: ")
         self.onlinesearchbutton = QtGui.QPushButton("Search")
@@ -1163,7 +1462,7 @@ class DirectoryChooser(QtGui.QWidget):
         self.directory_chooser_button = QtGui.QPushButton(QtGui.QIcon("images/document-open.png"), "")
         self.directory_chooser_button.clicked.connect(self.assign_new_dir)
         self.hboxlayout.addWidget(self.directory_text_edit)
-        self.hboxlayout.addWidget(self.directory_chooser_button)    
+        self.hboxlayout.addWidget(self.directory_chooser_button)
     
     def assign_new_dir(self):
         dir = QtGui.QFileDialog.getExistingDirectory(caption="Choose your new deployment folder")
@@ -1176,7 +1475,7 @@ class SettingsEditor(QtGui.QDialog):
     def __init__(self, parent = None):
         QtGui.QDialog.__init__(self, parent)
             
-        diribeoutils.resize_to_percentage(self, 50)
+        diribeoutils.resize_to_percentage(self, SUBWINDOW_PERCENTAGE)
 
         self.main_layout = QtGui.QVBoxLayout()
         self.header_layout = QtGui.QHBoxLayout()
@@ -1290,19 +1589,13 @@ class MainWindow(QtGui.QMainWindow):
 
         self.existing_series = None # stores the currently active series object
         
-        self.episode_overview_widget = EpisodeOverviewWidget()   
-        self.setCentralWidget(self.episode_overview_widget)
-        self.tableview = self.episode_overview_widget.tableview
-        self.tableview.callback = self.load_episode_information_at_index
-        self.tableview.horizontalHeader().setResizeMode(QtGui.QHeaderView.ResizeToContents)
-
         # Initialize worker thread manager
         self.jobs = WorkerThreadManager()
 
         # Initialize the status bar        
         self.setStatusBar(self.jobs.statusbar)
         
-        # Initialize the progress bar and assign to the statusbar
+        # Initialize the progress bar and assign to the status bar
         self.progressbar = self.jobs.progressbar  
         self.progressbar.setMaximumHeight(10)
         self.progressbar.setMaximumWidth(100)
@@ -1311,34 +1604,35 @@ class MainWindow(QtGui.QMainWindow):
         local_search_dock = self.local_search_dock = LocalSearchDock()
         self.local_search = local_search_dock.local_search
         
-        # Initialize series info doc
-        series_info_dock = SeriesInformationDock()
+        # Initialize the main widget
+        self.overview = EpisodeOverviewWidget()
+        self.tableview = self.overview.tableview
+        self.tableview.callback = self.load_episode_information_at_index
+        
+        series_info_dock = self.overview.series_information_dock
         self.seriesinfo =  series_info_dock.seriesinfo
         
         self.build_menu_bar()
         
         # Manage the docks
         self.addDockWidget(Qt.LeftDockWidgetArea, local_search_dock)                            
-        self.addDockWidget(Qt.RightDockWidgetArea, series_info_dock)
+        self.setCentralWidget(self.overview)
         
-        self.local_search.localseriestree.itemClicked.connect(self.load_into_local_table)         
+        self.local_search.localseriestree.itemSelectionChanged.connect(self.load_into_local_table)        
         self.seriesinfo.delete_button.clicked.connect(self.delete_series)
-        self.seriesinfo.tableview = self.tableview
-        
-        self.load_all_series_into_their_table()
-        self.tableview.setModel(None)
         
         self.setWindowTitle("Diribeo")
-        diribeoutils.resize_to_percentage(self, 75)
+        diribeoutils.resize_to_percentage(self, MAINWINDOW_PERCENTAGE)
         self.center()
 
+    
     def build_menu_bar(self):
         menubar = self.menuBar()
         
         file = menubar.addMenu('&File')
         save = QtGui.QAction(QtGui.QIcon("images/document-save.png"), 'Save', self)
         save.triggered.connect(self.save_settings)
-        exit = QtGui.QAction(QtGui.QIcon("images/system-log-out.png"), 'Exit', self)
+        exit = QtGui.QAction(QtGui.QIcon("images/system-log-out.png"), 'Save and Exit', self)
         exit.triggered.connect(self.closeEvent)
         file.addAction(save)
         file.addAction(exit)
@@ -1361,6 +1655,9 @@ class MainWindow(QtGui.QMainWindow):
         help.addAction(help_contents)
         help.addAction(about)
 
+
+    def toggle_view(self):
+        self.setCentralWidget(self.episode_overview_widget)
 
     def save_settings(self):
         settings.save_configs()
@@ -1509,8 +1806,9 @@ class MainWindow(QtGui.QMainWindow):
                 #clicked on a series
                 goto_row = 0            
             elif len(indextrace) == 1:
-                #clicked on a season            
-                goto_row = existing_series.accumulate_episode_count(index.row()-1)            
+                #clicked on a season                         
+                goto_row = existing_series.accumulate_episode_count(index.row()-1)
+                series_load_info = existing_series[goto_row]
             else:
                 #clicked on an episode            
                 goto_row = existing_series.accumulate_episode_count(index.parent().row()-1) + index.row()             
@@ -1532,11 +1830,7 @@ class MainWindow(QtGui.QMainWindow):
             pass
         finally:
             self.seriesinfo.load_information(self.existing_series[index.row()])
-
-
-    def load_all_series_into_their_table(self):
-        for series in series_list:
-            self.load_existing_series_into_table(series)        
+                 
 
     def load_existing_series_into_table(self, series):
         self.existing_series = series
@@ -1681,6 +1975,7 @@ if __name__ == "__main__":
     active_table_models = {}
 
     pool = multiprocessing.Pool()
+    pixmap_cache = PixmapCache()
 
     settings = diribeomodel.settings
     series_list = diribeomodel.series_list

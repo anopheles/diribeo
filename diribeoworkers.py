@@ -343,7 +343,6 @@ class MultipleMovieClipAssociator(AssignerThread):
         destination = settings.calculate_filepath(episode, filename)
         directory = os.path.dirname(destination)
         
-        print movieclip_association.movieclip, movieclips[episode.get_identifier()]
         if movieclip_association.movieclip in movieclips[episode.get_identifier()]:
             
             if os.path.isfile(destination):
@@ -397,7 +396,8 @@ class ThumbnailGenerator(WorkerThread):
         self.filepath = os.path.normpath(movieclip.filepath)
         self.movieclip = movieclip 
         self.episode = episode
-        self.image_list = []    
+        self.image_list = []  
+        self.timecode = []  
         self.description = "Generating thumbnails"       
         self.number_of_thumbnails = settings.get("number_of_thumbnails")  
 
@@ -436,8 +436,10 @@ class ThumbnailGenerator(WorkerThread):
         self.prefix = os.path.join(settings.get_thumbnail_folder(), unique_identifier)
         
         for index in range(1, self.number_of_thumbnails+1):
+            time = index*interval
+            self.timecode.append(time)
             destination = os.path.join(settings.get_thumbnail_folder(), unique_identifier + "-" + "%03d" % index + ".png") 
-            command = 'ffmpeg -ss ' + str(index*interval) + ' -i "'+ self.filepath + '" -vframes 1 -vcodec png -f image2 "' + destination + '"'           
+            command = 'ffmpeg -ss ' + str(time) + ' -i "'+ self.filepath + '" -vframes 1 -vcodec png -f image2 "' + destination + '"'           
             args = shlex.split(str(command)) # does not support unicode input
             proc = subprocess.Popen(args, stdout=subprocess.PIPE)
             proc.wait()
@@ -446,7 +448,7 @@ class ThumbnailGenerator(WorkerThread):
         self.collect_images()
         
         if len(self.image_list) > 0:
-            self.movieclip.thumbnails = self.image_list
+            self.movieclip.thumbnails = zip(self.image_list, self.timecode)            
             self.thumbnails_created.emit(self.episode)
         else:
             self.error_in_thumbnail_creation.emit()

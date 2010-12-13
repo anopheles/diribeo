@@ -128,7 +128,7 @@ class IMDBWrapper(SourceWrapper):
         import imdb
 
         # Create the object that will be used to access the IMDb's database.
-        self.ia  = imdb.IMDb(loggginLevel = "critical", proxy = "") # by default access the web.
+        self.ia  = imdb.IMDb(loggginLevel = "critical", proxy="") # by default access the web.
         
         self.identifier = "imdb"        
 
@@ -151,8 +151,8 @@ class IMDBWrapper(SourceWrapper):
         helpers.sortedEpisodes(seasons)
 
         # Ratings
-        self.ia.update(imdb_series, 'episodes rating')        
-        ratings = imdb_series.get('episodes rating')        
+        self.ia.update(imdb_series, 'episodes rating')
+        ratings = imdb_series.get('episodes rating')
 
         counter = 0
         for seasonnumber in seasons.iterkeys():
@@ -202,11 +202,13 @@ class IMDBWrapper(SourceWrapper):
                 series = (imdb_series.get('title'), {"imdb" : imdb_series.movieID})                
             else:
                 series = None
-                
-            if ratings is not None:
+                            
+                               
+            if ratings is not None:                
                 rating = {"imdb" : self.__get_rating(ratings, imdb_episode)}
             else:
-                rating = None
+                rating = {"imdb" : [imdb_episode.get("rating"), imdb_episode.get("votes")]}
+                
                                
             date = self.__convert_string_to_date(str(imdb_episode.get('original air date')))
             
@@ -238,6 +240,10 @@ class IMDBWrapper(SourceWrapper):
             pass
         series.genre = "\n".join(movie.get("genre"))
         series.date = movie.get('year')
+        try:
+            series.plot = "\n".join(movie.get('plot'))
+        except TypeError:
+            pass
 
     def search_movie(self, title):
         from imdb import IMDbError 

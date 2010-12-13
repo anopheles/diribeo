@@ -27,8 +27,9 @@ class MovieClip(object):
         
         if thumbnails is None:
             thumbnails = []    
-        self.thumbnails = thumbnails
+        self.thumbnails = thumbnails       
         
+    
     def get_filename(self):
         return os.path.basename(self.filepath)    
     
@@ -56,7 +57,7 @@ class MovieClip(object):
     
     def delete_thumbnails(self):
         ''' Delete the generated thumbnails '''                
-        for filepath in self.thumbnails:
+        for filepath, timecode in self.thumbnails:
             os.remove(filepath)
             
         self.thumbnails = []
@@ -95,15 +96,19 @@ class MovieClipAssociation(object):
         return self.episode_scores_list[self.episode_scores_list_reference]
 
 
+    def __str__(self):
+        return "MovieClipAssociation( " + self.get_associated_episode_score()+ " )" 
+
+
 def SeriesOrganizerDecoder(dct):
     if '__date__' in dct:
         return datetime.date.fromordinal(dct["ordinal"])
 
     if '__episode__' in dct:
-        return Episode(title = dct["title"], descriptor = dct["descriptor"], series = dct["series"], plot = dct['plot'], date = dct["date"], identifier = dct["identifier"], rating = dct["rating"], director = dct["director"], genre = dct["genre"], runtime = dct["runtime"], seen_it = dct["seen_it"], number = dct["number"])
+        return Episode(title = dct["title"], descriptor = dct["descriptor"], series = dct["series"], plot = dct['plot'], pictures = dct['pictures'], date = dct["date"], identifier = dct["identifier"], rating = dct["rating"], director = dct["director"], genre = dct["genre"], runtime = dct["runtime"], seen_it = dct["seen_it"], number = dct["number"])
 
     if '__series__' in dct:
-        return Series(dct["title"], identifier = dct["identifier"], episodes = dct["episodes"], rating = dct["rating"], director = dct["director"], genre = dct["genre"], date = dct["date"])
+        return Series(dct["title"], identifier = dct["identifier"], plot = dct["plot"], episodes = dct["episodes"], rating = dct["rating"], director = dct["director"], genre = dct["genre"], pictures = dct['pictures'], date = dct["date"])
 
     if '__movieclip__' in dct:        
         return MovieClip(dct['filepath'], identifier = dct['identifier'], filesize = dct['filesize'], checksum = dct['checksum'], thumbnails = dct["thumbnails"])
@@ -124,13 +129,13 @@ class SeriesOrganizerEncoder(json.JSONEncoder):
     def default(self, obj):
         
         if isinstance(obj, Episode):
-            return { "__episode__" : True, "title" : obj.title, "descriptor" : obj.descriptor, "series" : obj.series, "plot" : obj.plot, "date" : obj.date, "identifier" : obj.identifier, "rating" : obj.rating, "director" : obj.director, "runtime" : obj.runtime, "genre" : obj.genre, "seen_it" : obj.seen_it, "number" : obj.number}
+            return { "__episode__" : True, "title" : obj.title, "descriptor" : obj.descriptor, "series" : obj.series, "plot" : obj.plot, "pictures" : obj.pictures, "date" : obj.date, "identifier" : obj.identifier, "rating" : obj.rating, "director" : obj.director, "runtime" : obj.runtime, "genre" : obj.genre, "seen_it" : obj.seen_it, "number" : obj.number}
 
         if isinstance(obj, datetime.date):
             return { "__date__" : True, "ordinal" : obj.toordinal()}
 
         if isinstance(obj, Series):
-            return { "__series__" : True, "title" : obj.title, "episodes" : obj.episodes, "identifier" : obj.identifier, "rating" : obj.rating,  "director" : obj.director, "genre" : obj.genre, "date" : obj.date}
+            return { "__series__" : True, "title" : obj.title, "plot" : obj.plot, "episodes" : obj.episodes, "identifier" : obj.identifier, "pictures" : obj.pictures,  "rating" : obj.rating,  "director" : obj.director, "genre" : obj.genre, "date" : obj.date}
 
         if isinstance(obj, MovieClip):
             return { "__movieclip__" : True, "filepath" : obj.filepath, "filesize" : obj.filesize, "checksum" : obj.checksum, "identifier" : obj.identifier, "thumbnails" : obj.thumbnails}        
@@ -330,13 +335,16 @@ class Settings(object):
         return default_value 
 
 class Series(object):
-    def __init__(self, title, identifier = None, episodes = None, rating = None, director = "", genre = "", date = ""):
+    def __init__(self, title, plot = None, identifier = None, episodes = None, rating = None, pictures = None, director = "", genre = "", date = ""):
 
         if episodes == None:
             episodes = []
             
         if identifier == None:
             identifier = {}
+            
+        if pictures == None:
+            pictures = []
 
         self.episodes = episodes
         self.title = title
@@ -345,6 +353,8 @@ class Series(object):
         self.director = director
         self.genre = genre
         self.date = date
+        self.pictures = pictures
+        self.plot = plot
         self.season = {}
     
     
@@ -404,7 +414,14 @@ class Series(object):
         return accumulated_sum
 
     def get_movieclips(self):
-        return []
+        accumulated_movieclips =  [bucket for bucket in [episode.get_movieclips() for episode in self.episodes]]
+        ouput_movieclips = []
+        
+        for bucket in accumulated_movieclips:
+            for movieclip in bucket:
+                ouput_movieclips.append(movieclip)
+                
+        return ouput_movieclips
         
     def get_identifier(self):
         return self.identifier.items()[0]
@@ -413,9 +430,36 @@ class Series(object):
         return self.identifier.items()[0][0]
 
 
-class Episode(object):
-    def __init__(self, title = "", descriptor = None, series = "", date = None, plot = "", identifier = None, rating = None, director = "", runtime = "", genre = "", seen_it = False, number = 0):
+    def get_episode_date_range(self):
+        """ Returns the date of the first and last episode of this series
+        """
         
+        try:
+            current_first_date = None
+            current_last_date = None 
+            
+            
+            for episode in self.episodes:
+                if episode.date != None:                    
+                    current_first_date = episode.date
+                    break               
+            
+            for episode in reversed(self.episodes):
+                if episode.date != None:
+                    current_last_date = episode.date
+                    break
+            
+            return current_first_date, current_last_date
+        except IndexError:
+            return datetime.date.today(), datetime.date.today()-datetime.timedelta(1)
+        
+
+class Episode(object):
+    def __init__(self, title = "", descriptor = None, series = "", date = None, plot = "", identifier = None, rating = None, pictures = None, director = "", runtime = "", genre = "", seen_it = False, number = 0):
+        
+        if pictures == None:
+            pictures = []
+            
         self.title = title
         self.descriptor = descriptor
         self.series = series
@@ -423,6 +467,7 @@ class Episode(object):
         self.date = date
         self.identifier = identifier
         self.rating = rating
+        self.pictures = pictures
         self.director = director
         self.runtime = runtime
         self.genre = genre
@@ -481,12 +526,12 @@ class Episode(object):
     def get_implementation_identifier(self):
         return self.identifier.items()[0][0]
     
-    def merge(self, new_episode, merge_policy = MergePolicy.MORE_INFO):
-        
+    def merge(self, new_episode, merge_policy = MergePolicy.MORE_INFO):        
         # Don't overwrite series, identifier and the number, since the new episode might not have this info           
         if merge_policy == MergePolicy.MORE_INFO:
             if len(self.plot) < len(new_episode.plot):
                 self.plot = new_episode.plot
+            self.rating = new_episode.rating
         elif merge_policy == MergePolicy.OVERWRITE: 
             self.title = new_episode.title
             self.descriptor = new_episode.descriptor
@@ -497,14 +542,13 @@ class Episode(object):
             self.runtime = new_episode.runtime
             self.genre = new_episode.genre
             self.seen_it = new_episode.seen_it
+            
     
     def get_ratings(self):
         return_text = ""
         for rating in self.rating:
-            try:
+            if self.rating[rating][0] != None:
                 return_text = str(rating).upper() + ": " + str(self.rating[rating][0]) + " (" + str(self.rating[rating][1]) + ")\n" + return_text
-            except TypeError:
-                pass
         return return_text 
 
 
