@@ -22,7 +22,7 @@ import diribeoutils
 
 
 from diribeomodel import Series, Episode, MovieClipAssociation, Settings
-from diribeoworkers import SeriesSearchWorker, ModelFiller, MultipleMovieClipAssociator, ThumbnailGenerator, MultipleAssignerThread, MovieUpdater, VersionChecker
+from diribeoworkers import SeriesSearchWorker, ModelFiller, MultipleMovieClipAssociator, ThumbnailGenerator, MultipleAssignerThread, MovieUpdater, VersionChecker, HOMEPAGE
 
 
 from PyQt4 import QtGui, QtSvg
@@ -30,7 +30,6 @@ from PyQt4 import QtCore
 from PyQt4.QtCore import Qt
 
 
-HOMEPAGE = "http://www.diribeo.de"
 MAINWINDOW_PERCENTAGE = 75
 SUBWINDOW_PERCENTAGE = 50 
 THUMBNAIL_WIDTH = 150 
@@ -187,7 +186,7 @@ class EpisodeTableModel(QtCore.QAbstractTableModel):
             self.episodes[index.row()].seen_it = boolean_value 
             self.dataChanged.emit(index, index)
             return True
-        if role == Qt.EditRole:
+        if role == Qt.EditRole and False: # TODO: double clicking deletes this 
             if index.column() == 4:
                 self.episodes[index.row()].plot = value.toString()
                 self.dataChanged.emit(index, index)
@@ -496,7 +495,7 @@ class MovieClipInformationWidget(QtGui.QFrame):
         self.remove()
       
     def remove(self):
-        movieclips.remove(self.movieclip, self.movie.get_identifier()) 
+        movieclips.remove(self.movieclip) 
         self.update.emit(self.movie)
     
     def play(self):
@@ -662,8 +661,10 @@ class TimelineWidget(QtGui.QLabel):
     
     def __init__(self, parent = None):
         QtGui.QLabel.__init__(self, parent)
-        self.setMinimumSize(1, 30)
-
+        self.setMinimumSize(1, 40)
+        self.setMouseTracking(True)
+        self.mouse_position = [0,0]
+        self.inside = False
     
     def set_dates(self, begin_date, end_date, episode_dates = None):
         self.begin_date = begin_date
@@ -671,57 +672,84 @@ class TimelineWidget(QtGui.QLabel):
         self.episode_dates = episode_dates
         self.update()
     
+    def enterEvent(self, event):
+        self.inside = True
+        QtGui.QLabel.enterEvent(self, event)    
+
+    def leaveEvent(self, event):
+        self.inside = False
+        QtGui.QLabel.leaveEvent(self, event)
+        self.update()
+
+    def mouseMoveEvent(self, event):
+        self.mouse_position = [event.x(), event.y()]
+        self.update()
+        QtGui.QLabel.mouseMoveEvent(self, event)     
+        
+    
     def paintEvent(self, event):
         size = self.size()
         
         width = size.width()
         height = self.height() 
         tick_height = 5    
-        spacing = 0
+        spacing = 20
         
         paint = QtGui.QPainter()        
         paint.begin(self)
         paint.setRenderHint(QtGui.QPainter.Antialiasing)
         
-        pen = QtGui.QPen()
-        pen.setWidth(2)
-        pen.setJoinStyle(Qt.RoundJoin)
-        paint.setPen(pen)
+        paint.setPen(QtGui.QPen(Qt.black, 2, Qt.SolidLine))
         
-        pen.setWidth(2)
-        
-        #draw timeline
-        paint.drawLine(spacing,height,width,height)
+        #draw main timeline
+        paint.drawLine(spacing,height,width-spacing,height)
         
         #draw ticks
-        paint.drawLine(spacing,height+tick_height,spacing,height-tick_height)
-        paint.drawLine(width,height+tick_height,width,height-tick_height)
+        paint.drawLine(spacing,height+2*tick_height,spacing,height-2*tick_height)
+        paint.drawLine(width-spacing,height+2*tick_height,width-spacing,height-2*tick_height)
+    
+        #calculate width of last date
+        font_metrics = QtGui.QFontMetrics(paint.font())
+        text_width = font_metrics.width(str(self.end_date))
     
         #draw dates
-        paint.setPen(QtGui.QColor("black"))
-        paint.drawText(QtCore.QPoint(0,height/2), str(self.begin_date))
-        paint.drawText(QtCore.QPoint(width-2*spacing,height/2), str(self.end_date))    
-        
+        paint.setPen(QtGui.QPen(Qt.black, 1, Qt.SolidLine))
+        paint.drawText(QtCore.QPoint(spacing,height/3.5), str(self.begin_date))
+        paint.drawText(QtCore.QPoint(width-text_width-spacing,height/3.5), str(self.end_date))    
         
         
         #calculate number of days in beetween
         total_days = (self.end_date-self.begin_date).days
         reference = self.find_new_years_eve(self.begin_date, self.end_date)
         
-        step_size = float(width-spacing)/total_days
+        step_size = float(width-2*spacing)/total_days
         for year, day_sum in reference:      
             x = spacing+int(step_size*day_sum)
+            #calculate width of last date
+            font_metrics = QtGui.QFontMetrics(paint.font())
+            text_width = font_metrics.width(str(year+1))
             paint.drawLine(x,height+tick_height,x,height-tick_height)
-            paint.drawText(QtCore.QPoint(x,height/2), str(year))
+            paint.drawText(QtCore.QPoint(x-text_width/2.0,height-2*tick_height), str(year+1))
         
-        
-        #draw episode dates
+        red_small = QtGui.QPen(Qt.red, 2, Qt.SolidLine)
+        blue_big = QtGui.QPen(Qt.blue, 4, Qt.SolidLine)
+        paint.setPen(red_small)
+             
+        #draw episode dates ticks
         try:
             for episode_days in self.episode_dates:
                 episode_days = (episode_days-self.begin_date).days
                 x = spacing+int(step_size*episode_days)
-                paint.setPen(QtGui.QColor("red"))
-                paint.drawLine(x,height+tick_height,x,height-tick_height)
+                tolerance = 2
+                if self.inside and self.mouse_position[0]-tolerance < x and self.mouse_position[0]+tolerance > x :
+                    self.setToolTip(str(datetime.timedelta(days=episode_days)+self.begin_date))
+                    paint.setPen(blue_big)
+                    paint.drawLine(x,height+tick_height*2,x,height-tick_height*2)                    
+                else:
+                    paint.setPen(red_small)
+                    paint.drawLine(x,height+tick_height,x,height-tick_height)
+                     
+                
         except TypeError:
             pass        
         
@@ -863,7 +891,7 @@ class SeriesInformationWidget(QtGui.QWidget):
         self.stacked_widget.setCurrentWidget(self.nothing_to_see_here_widget)
 
     def load_information(self, movie):
-        print "loading", movie
+        #print "loading", movie
                 
         self.movie = movie
         
@@ -963,6 +991,10 @@ class EpisodeTableWidget(QtGui.QTableView):
         self.horizontalHeader().setResizeMode(QtGui.QHeaderView.ResizeToContents)
 
 
+    def mouseDoubleClickEvent(self, event):
+        self.overview.series_information_dock.seriesinfo.next()
+        QtGui.QTableView.mouseDoubleClickEvent(self, event)
+    
     def dragEnterEvent(self, event):
         event.acceptProposedAction()
 
@@ -1050,8 +1082,7 @@ class MultipleAssociationWizard(QtGui.QWizard):
         self.accepted.connect(self.wizard_complete)
     
     def wizard_complete(self):        
-        filtered_movieclip_associations = [movieclip_asssociation for movieclip_asssociation in self.movieclip_associations if not movieclip_asssociation.skip]  
-        print filtered_movieclip_associations      
+        filtered_movieclip_associations = [movieclip_asssociation for movieclip_asssociation in self.movieclip_associations if not movieclip_asssociation.skip]
         mainwindow.add_movieclip_associations_to_episodes(filtered_movieclip_associations)
 
 

@@ -617,9 +617,9 @@ class MovieClipManager(object):
             self.dictionary[implementation][key] = []
             self.dictionary[implementation][key].append(movieclip) 
 
-    def remove(self, movieclip, identifier):
-        implementation, key = identifier
-        self.dictionary[implementation][key].remove(movieclip)
+    def remove(self, movieclip):
+        for implementation in movieclip.identifier:
+            self.dictionary[implementation][movieclip.identifier[implementation]].remove(movieclip)
 
     def __iter__(self):
         return self.dictionary.iteritems()

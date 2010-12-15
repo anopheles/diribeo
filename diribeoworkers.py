@@ -18,6 +18,7 @@ from diribeowrapper import library
 from operator import itemgetter
 from PyQt4 import QtCore
 
+HOMEPAGE = "http://www.diribeo.de"
 
 class WorkerThread(QtCore.QThread):
     
@@ -275,7 +276,7 @@ class VersionChecker(WorkerThread):
         self.waiting.emit()
         try:
             # TODO
-            content = urllib2.urlopen("http://diribeo.de/tasks/currentversion_v1").read()
+            content = urllib2.urlopen(HOMEPAGE+"tasks/currentversion_v1").read()
             version = tuple(json.loads(content)["version"])
             self.finished.emit(version)
         except urllib2.URLError:

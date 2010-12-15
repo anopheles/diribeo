@@ -8,7 +8,7 @@
 	
 	<section id="logo">
 		<header>
-			<a href="/"><img width=300 src="/images/diribeo_logo.png"></a>
+			<a href="/"><img width=300 src="/images/diribeo_logo.png" border="0"></a>
 		</header>
 	</section>
 	

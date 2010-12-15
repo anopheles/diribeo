@@ -2,9 +2,6 @@
 
 from PyQt4 import QtGui, QtCore
 from PyQt4.QtCore import Qt
-from PyQt4 import QtSvg
-
-import datetime
 
 
 
@@ -12,28 +9,7 @@ def resize_to_percentage(qwidget, percentage):
     screen = QtGui.QDesktopWidget().screenGeometry()
     qwidget.resize(screen.width()*percentage/100.0, screen.height()*percentage/100.0)
   
-
-def create_svg(filename, width=200):
-        
-    #Initalize svg renderer
-    svg_renderer = QtSvg.QSvgRenderer()
-    svg_renderer.load(filename)
-    
-    #initalize pixmap object
-    pixmap = QtGui.QPixmap(width, width)
-    pixmap.fill(QtGui.QColor(255,255,255, 0))
-    paint = QtGui.QPainter()        
-    paint.begin(pixmap)
-    paint.setRenderHint(QtGui.QPainter.Antialiasing)
-    
-    svg_renderer.render(paint)
-    
-    #end painting
-    paint.end()
-
-    return pixmap
-
-def create_fancy_image(text, alpha = 128, size = 72):
+def create_fancy_image(text, alpha = 64, size = 72):
     font = QtGui.QFont('Arial', size)
     font.setCapitalization(QtGui.QFont.AllUppercase)
     
