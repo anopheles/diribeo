@@ -1164,10 +1164,7 @@ class GettingStartedWidget(QtGui.QWidget):
     def __init__(self, parent = None):
         QtGui.QWidget.__init__(self, parent)
         vbox = QtGui.QVBoxLayout()
-        welcome = QtGui.QLabel("Welcome to Diribeo!")
-        font = welcome.font()
-        font.setPointSize(15)
-        welcome.setFont(font);
+        welcome = QtGui.QLabel("Welcome to Diribeo!\nThere are currently no series downloaded.\nGet started by downloading your first series.")
         vbox.addWidget(welcome)
         vbox.addStretch(20)
         self.setLayout(vbox)

@@ -12,9 +12,9 @@ def nothing_found_warning():
     messagebox.setStandardButtons(QtGui.QMessageBox.Ok)
     messagebox.exec_()
              
-def error_in_thumbnail_creation_warning(movieclip, episode):
+def error_in_thumbnail_creation_warning(movieclip, movie):
     messagebox = QtGui.QMessageBox(QtGui.QMessageBox.Warning, "Error in thumbnail creation", "")
-    messagebox.setText("There was an error while trying to create the thumbnails for the episode: %s" % episode.get_normalized_name())
+    messagebox.setText("There was an error while trying to create the thumbnails")
     messagebox.setInformativeText("Make sure that you have ffmpeg installed correctly.")
     messagebox.setStandardButtons(QtGui.QMessageBox.Ok) 
     messagebox.exec_()
