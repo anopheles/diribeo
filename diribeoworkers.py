@@ -539,3 +539,5 @@ class ModelFiller(WorkerThread):
         self.finished.emit()
         self.update_tree.emit(self.series)
         self.update_tableview.emit(self.model)
+        
+        

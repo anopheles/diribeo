@@ -22,7 +22,7 @@ import diribeowrapper
 import diribeoutils
 
 
-from diribeomodel import Series, Episode, MovieClipAssociation, Settings
+from diribeomodel import Series, Episode, MovieClipAssociation, Settings, MergePolicy
 from diribeoworkers import SeriesSearchWorker, ModelFiller, MultipleMovieClipAssociator, ThumbnailGenerator, MultipleAssignerThread, MovieUpdater, VersionChecker, HOMEPAGE
 
 
@@ -1549,7 +1549,7 @@ class SourceSelectionSettings(QtGui.QWidget):
     def __init__(self, parent = None):
         QtGui.QWidget.__init__(self, parent)
         
-        self.hboxlayout = QtGui.QHBoxLayout()
+        self.hboxlayout = QtGui.QVBoxLayout()
         self.setLayout(self.hboxlayout)
         
         self.source_settings_groupbox = QtGui.QGroupBox("Sources")
@@ -1568,7 +1568,7 @@ class DebuggingSettings(QtGui.QWidget):
     def __init__(self, parent = None):
         QtGui.QWidget.__init__(self, parent)
         
-        self.hboxlayout = QtGui.QHBoxLayout()
+        self.hboxlayout = QtGui.QVBoxLayout()
         self.setLayout(self.hboxlayout)
         
         self.debugging_settings_groupbox = QtGui.QGroupBox("Debugging")
@@ -1580,11 +1580,14 @@ class GeneralSettings(QtGui.QWidget):
     def __init__(self, parent = None):
         QtGui.QWidget.__init__(self, parent)
         
-        self.hboxlayout = QtGui.QHBoxLayout()
+        self.hboxlayout = QtGui.QVBoxLayout()
         self.setLayout(self.hboxlayout)
         
-        self.general_settings_groupbox = QtGui.QGroupBox("General Settings")
+        self.general_settings_groupbox = QtGui.QGroupBox("General Settings")        
         self.hboxlayout.addWidget(self.general_settings_groupbox)
+        
+        self.update_settings_groupbox = QtGui.QGroupBox("Update Settings")
+        self.hboxlayout.addWidget(self.update_settings_groupbox)
         
         self.form_layout = QtGui.QFormLayout()
         
@@ -1619,7 +1622,30 @@ class GeneralSettings(QtGui.QWidget):
         self.form_layout.addRow("Number of thumbnails created", self.number_of_thumbnails_edit)
         self.form_layout.addRow("Deployment folder", self.deployment_folder_edit)
         
-                                   
+        
+        self.update_form_layout = QtGui.QFormLayout()
+        self.update_settings_groupbox.setLayout(self.update_form_layout)
+        
+        
+        #TODO
+        self.merge_policy_messages = {MergePolicy.OVERWRITE : "Overwrite",
+                                      MergePolicy.MORE_INFO : "More Information"}
+        
+        self.series_merge_policy = QtGui.QComboBox()
+        self.episode_merge_policy = QtGui.QComboBox()
+        
+        for index, policy in enumerate([MergePolicy.MORE_INFO, MergePolicy.OVERWRITE]):
+            self.series_merge_policy.insertItem(index, self.merge_policy_messages[policy])
+            self.episode_merge_policy.insertItem(index, self.merge_policy_messages[policy])
+            
+            if settings.get("merge_policy_series") == policy:
+                self.series_merge_policy.setCurrentIndex(index)
+            
+            if settings.get("merge_policy_episode") == policy:
+                self.episode_merge_policy.setCurrentIndex(index)
+        
+        self.update_form_layout.addRow("Series Merge Policy", self.series_merge_policy)
+        self.update_form_layout.addRow("Episode Merge Policy", self.episode_merge_policy)                          
 
 class DirectoryChooser(QtGui.QWidget):
     def __init__(self, default_text, parent = None):
@@ -1656,16 +1682,16 @@ class SettingsEditor(QtGui.QDialog):
         self.setWindowTitle('Settings')
         
         # Create General Settings Groupbox
-        self.general_settings_groupbox = GeneralSettings()
-        self.stacked_widget.addWidget(self.general_settings_groupbox)
+        self.general_settings = GeneralSettings()
+        self.stacked_widget.addWidget(self.general_settings)
         
         # Create Sources Settings Groupbox
-        self.sources_settings_groupbox = SourceSelectionSettings()
-        self.stacked_widget.addWidget(self.sources_settings_groupbox)
+        self.sources_settings = SourceSelectionSettings()
+        self.stacked_widget.addWidget(self.sources_settings)
        
         # Create Appearance Settings Groupbox
-        self.debugging_settings_groupbox = DebuggingSettings()
-        self.stacked_widget.addWidget(self.debugging_settings_groupbox)       
+        self.debugging_settings = DebuggingSettings()
+        self.stacked_widget.addWidget(self.debugging_settings)       
        
         
         # Build chooser which is at the left side of the window
@@ -1681,7 +1707,7 @@ class SettingsEditor(QtGui.QDialog):
         general_settings_button.setIcon(icon_general_settings)
         general_settings_button.setText("General Settings")
         general_settings_button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
-        general_settings_button.clicked.connect(functools.partial(self.stacked_widget.setCurrentWidget, self.general_settings_groupbox))
+        general_settings_button.clicked.connect(functools.partial(self.stacked_widget.setCurrentWidget, self.general_settings))
         
         
         # Create sources button
@@ -1690,7 +1716,7 @@ class SettingsEditor(QtGui.QDialog):
         source_settings_button.setIcon(icon_source_settings)
         source_settings_button.setText("Sources")
         source_settings_button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
-        source_settings_button.clicked.connect(functools.partial(self.stacked_widget.setCurrentWidget, self.sources_settings_groupbox))
+        source_settings_button.clicked.connect(functools.partial(self.stacked_widget.setCurrentWidget, self.sources_settings))
         
         
         # Statistic settings
@@ -1699,7 +1725,7 @@ class SettingsEditor(QtGui.QDialog):
         debugging_settings_button.setIcon(icon_statistic_settings)
         debugging_settings_button.setText("Debugging")
         debugging_settings_button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
-        debugging_settings_button.clicked.connect(functools.partial(self.stacked_widget.setCurrentWidget, self.debugging_settings_groupbox))
+        debugging_settings_button.clicked.connect(functools.partial(self.stacked_widget.setCurrentWidget, self.debugging_settings))
         
         
         self.chooser_toolbar.addWidget(general_settings_button)
@@ -1733,20 +1759,23 @@ class SettingsEditor(QtGui.QDialog):
         
     def save_settings(self):
         # Handle General Settings
-        settings["copy_associated_movieclips"] = self.general_settings_groupbox.copy_associated_movieclips_checkbox.checkState()
-        settings["automatic_thumbnail_creation"] = self.general_settings_groupbox.automatic_thumbnail_creation_checkbox.checkState()
-        settings["show_all_movieclips"] = self.general_settings_groupbox.show_all_movieclips_checkbox.checkState()
-        settings["normalize_names"] = self.general_settings_groupbox.normalize_names_checkbox.checkState()
-        settings["hash_movieclips"] = self.general_settings_groupbox.hash_movieclips_checkbox.checkState()
+        settings["copy_associated_movieclips"] = self.general_settings.copy_associated_movieclips_checkbox.checkState()
+        settings["automatic_thumbnail_creation"] = self.general_settings.automatic_thumbnail_creation_checkbox.checkState()
+        settings["show_all_movieclips"] = self.general_settings.show_all_movieclips_checkbox.checkState()
+        settings["normalize_names"] = self.general_settings.normalize_names_checkbox.checkState()
+        settings["hash_movieclips"] = self.general_settings.hash_movieclips_checkbox.checkState()
         try:
-            settings["number_of_thumbnails"] = int(self.general_settings_groupbox.number_of_thumbnails_edit.text())
+            settings["number_of_thumbnails"] = int(self.general_settings.number_of_thumbnails_edit.text())
         except ValueError:
             settings["number_of_thumbnails"] = 8
         
-        settings["deployment_folder"] = str(self.general_settings_groupbox.deployment_folder_edit.text())
+        settings["deployment_folder"] = str(self.general_settings.deployment_folder_edit.text())
+        
+        settings["merge_policy_series"] = self.general_settings.series_merge_policy.currentIndex()-1
+        settings["merge_policy_episode"] = self.general_settings.episode_merge_policy.currentIndex()-1
         
         # Handle Source Settings
-        checkbox_dict = self.sources_settings_groupbox.implementation_checkboxes
+        checkbox_dict = self.sources_settings.implementation_checkboxes
         settings["sources"] = dict([[implementation, bool(checkbox_dict[implementation].checkState())] for implementation in  checkbox_dict])
         
         self.hide()

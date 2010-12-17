@@ -9,9 +9,8 @@ import sys
 from PyQt4 import QtCore
 
 
-class MergePolicy(object):  
-    OVERWRITE = 0
-    MORE_INFO = 1
+class MergePolicy(object):
+    OVERWRITE, MORE_INFO = range(2)
 
 class MovieClip(object):
     def __init__(self, filepath, identifier = None, filesize = None, checksum = None, thumbnails = None, duration = None):
@@ -19,7 +18,7 @@ class MovieClip(object):
                     
         self.identifier = identifier 
         self.checksum = checksum
-        self.duration = duration
+        self.duration = duration # in seconds
             
         if filesize is None:
             self.get_filesize()
@@ -166,7 +165,9 @@ class Settings(object):
                              "hash_movieclips" : False,
                              "number_of_thumbnails" : 8,
                              "deployment_folder" : self.get_deployment_folder(),
-                             "sources" : self.get_sources()
+                             "sources" : self.get_sources(),
+                             "merge_policy_series" : MergePolicy.MORE_INFO,
+                             "merge_policy_episode" : MergePolicy.MORE_INFO,
                              }
         else:
             self.settings = settings      
