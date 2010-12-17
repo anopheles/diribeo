@@ -14,11 +14,12 @@ class MergePolicy(object):
     MORE_INFO = 1
 
 class MovieClip(object):
-    def __init__(self, filepath, identifier = None, filesize = None, checksum = None, thumbnails = None):
+    def __init__(self, filepath, identifier = None, filesize = None, checksum = None, thumbnails = None, duration = None):
         self.filepath = filepath
                     
         self.identifier = identifier 
         self.checksum = checksum
+        self.duration = duration
             
         if filesize is None:
             self.get_filesize()
@@ -111,7 +112,7 @@ def SeriesOrganizerDecoder(dct):
         return Series(dct["title"], identifier = dct["identifier"], plot = dct["plot"], episodes = dct["episodes"], rating = dct["rating"], director = dct["director"], genre = dct["genre"], pictures = dct['pictures'], date = dct["date"])
 
     if '__movieclip__' in dct:        
-        return MovieClip(dct['filepath'], identifier = dct['identifier'], filesize = dct['filesize'], checksum = dct['checksum'], thumbnails = dct["thumbnails"])
+        return MovieClip(dct['filepath'], identifier = dct['identifier'], filesize = dct['filesize'], checksum = dct['checksum'], thumbnails = dct["thumbnails"], duration = dct["duration"])
     
     if '__movieclips__' in dct:        
         return MovieClipManager(dictionary = dct['dictionary'])
@@ -138,7 +139,7 @@ class SeriesOrganizerEncoder(json.JSONEncoder):
             return { "__series__" : True, "title" : obj.title, "plot" : obj.plot, "episodes" : obj.episodes, "identifier" : obj.identifier, "pictures" : obj.pictures,  "rating" : obj.rating,  "director" : obj.director, "genre" : obj.genre, "date" : obj.date}
 
         if isinstance(obj, MovieClip):
-            return { "__movieclip__" : True, "filepath" : obj.filepath, "filesize" : obj.filesize, "checksum" : obj.checksum, "identifier" : obj.identifier, "thumbnails" : obj.thumbnails}        
+            return { "__movieclip__" : True, "filepath" : obj.filepath, "filesize" : obj.filesize, "checksum" : obj.checksum, "identifier" : obj.identifier, "thumbnails" : obj.thumbnails, "duration" : obj.duration}        
         
         if isinstance(obj, Settings):
             return { "__settings__" : True, "settings" : obj.settings} 
@@ -479,18 +480,7 @@ class Episode(object):
 
 
     def __repr__(self):
-        return "E(" + str(self.series[0]) + " - " + str(self.title) + " " + str(self.descriptor[0]) + "x" + str(self.descriptor[1]) +  " " + str(self.date) + ")"
-
-    def __cmp__(self, other):
-        try:
-            other = other.date
-        except (TypeError, AttributeError):
-            pass
-        return cmp(self.date, other)
-
-    def __eq__(self, other):
-        return self.title == other.title and self.descriptor == other.descriptor
-    
+        return "E(" + str(self.series[0]) + " - " + str(self.title) + " " + str(self.descriptor[0]) + "x" + str(self.descriptor[1]) +  " " + str(self.date) + ")"  
     
     def get_series(self):
         for series in series_list:

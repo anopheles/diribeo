@@ -275,7 +275,6 @@ class VersionChecker(WorkerThread):
     def run(self):
         self.waiting.emit()
         try:
-            # TODO
             content = urllib2.urlopen(HOMEPAGE+"tasks/currentversion_v1").read()
             version = tuple(json.loads(content)["version"])
             self.finished.emit(version)
@@ -421,8 +420,9 @@ class ThumbnailGenerator(WorkerThread):
         length_command = 'ffmpeg -i "' + self.filepath + '"'
         length_command_args = shlex.split(str(length_command))
         try:       
-            length_process = subprocess.Popen(length_command_args, stderr=subprocess.PIPE, stdout=subprocess.PIPE).communicate()
+            length_process = subprocess.Popen(length_command_args, stderr=subprocess.PIPE, stdout=subprocess.PIPE, shell=True).communicate()
             duration = self.get_duration_from_ffprobe_output(length_process[1])
+            self.movieclip.duration = duration
         except (AttributeError, OSError) as e:
             self.error_in_thumbnail_creation.emit()
             self.finished.emit()
@@ -443,7 +443,7 @@ class ThumbnailGenerator(WorkerThread):
             destination = os.path.join(settings.get_thumbnail_folder(), unique_identifier + "-" + "%03d" % index + ".png") 
             command = 'ffmpeg -ss ' + str(time) + ' -i "'+ self.filepath + '" -vframes 1 -vcodec png -f image2 "' + destination + '"'           
             args = shlex.split(str(command)) # does not support unicode input
-            proc = subprocess.Popen(args, stdout=subprocess.PIPE)
+            proc = subprocess.Popen(args, stdout=subprocess.PIPE, shell=True)
             proc.wait()
             self.progress.emit(index, self.number_of_thumbnails)  
                   
@@ -468,7 +468,7 @@ class MovieUpdater(WorkerThread):
     def __init__(self, movie):
         WorkerThread.__init__(self)
         self.movie = movie
-        self.description =  "Updating movie"
+        self.description = "Updating movie"
         
     def run(self):
         self.waiting.emit()

@@ -14,6 +14,7 @@ import functools
 import collections
 import multiprocessing
 import datetime
+import traceback
 
 import diribeomessageboxes
 import diribeomodel
@@ -141,7 +142,7 @@ class EpisodeTableModel(QtCore.QAbstractTableModel):
     def columnCount(self, index):
         return len(self.column_lookup)
 
-    def data(self, index, role):
+    def data(self, index, role):        
         episode = self.episodes[index.row()]
         
         picture, title, seen_it, date, plot_summary = range(5)
@@ -173,7 +174,14 @@ class EpisodeTableModel(QtCore.QAbstractTableModel):
 
 
     def refresh_table(self):
+        self.insertRows(0,len(self.episodes)-1,None)
         self.dataChanged.emit(self.index(0, 0), self.index(len(self.episodes)-1, len(self.column_lookup)-1))
+    
+    def insertRows(self, row, count, modelindex):
+        self.beginInsertRows(QtCore.QModelIndex(), row, count)
+        self.endInsertRows()
+        return True
+    
     
     def refresh_row(self, row):
         self.dataChanged.emit(self.index(row, 0), self.index(row, len(self.column_lookup)-1))
@@ -251,7 +259,8 @@ class LocalSearch(QtGui.QFrame):
 
 
     def sort_tree(self):
-        self.localseriestree.sortItems(0, Qt.AscendingOrder)
+        pass
+        #self.localseriestree.sortItems(0, Qt.AscendingOrder)
 
 
     def remove_series(self, series):        
@@ -440,7 +449,8 @@ class MovieClipInformationWidget(QtGui.QFrame):
             self.setStyleSheet("color:red")
             available = False
                     
-        self.title = QtGui.QLabel()
+        self.title = SeriesInformationCategory("Title", spacing=0)
+        self.duration = SeriesInformationCategory("Duration", spacing=0)
         icon_start = QtGui.QIcon("images/media-playback-start.png")
         icon_remove = QtGui.QIcon("images/edit-clear.png")
         icon_delete = QtGui.QIcon("images/process-stop.png")
@@ -466,9 +476,9 @@ class MovieClipInformationWidget(QtGui.QFrame):
         
         self.control_layout.addWidget(self.remove_button)
         
-        self.gridlayout.addWidget(QtGui.QLabel("Filename"), 0, 0)            
-        self.gridlayout.addWidget(self.title, 1, 0)        
-        self.gridlayout.addLayout(self.control_layout, 2, 0)
+        self.gridlayout.addWidget(self.title, 0, 0)            
+        self.gridlayout.addWidget(self.duration, 1, 0)
+        self.gridlayout.addLayout(self.control_layout, 4, 0)
        
         self.play_button.clicked.connect(self.play)        
         self.delete_button.clicked.connect(self.delete)
@@ -488,6 +498,13 @@ class MovieClipInformationWidget(QtGui.QFrame):
         
     def load_information(self, movieclip):
         self.title.setText(movieclip.get_filename())
+        
+        try: #movieclip.duration might be None
+            minutes, seconds = divmod(movieclip.duration, 60)
+            self.duration.setText("%s minutes and %s seconds" % (minutes, seconds))
+        except TypeError:
+            self.duration.setVisible(False)
+        
      
     def delete(self):
         self.movieclip.delete_file_in_deployment_folder()
@@ -546,10 +563,11 @@ class MovieClipOverviewWidget(QtGui.QWidget):
 
 
 class SeriesInformationCategory(QtGui.QWidget):
-    def __init__(self, label_name, type = QtGui.QLabel, font_size = None, spacing = 25, default = "-", disabled = False, parent = None):
+    def __init__(self, label_name, type = QtGui.QLabel, font_size = None, spacing = 25, default = "-", disabled = False, indentation = 10, parent = None):
         QtGui.QWidget.__init__(self, parent)        
         
         self.layout = QtGui.QVBoxLayout()
+        self.below_layout = QtGui.QHBoxLayout()
         self.setLayout(self.layout)
         self.spacing = spacing
         self.default = default
@@ -565,8 +583,11 @@ class SeriesInformationCategory(QtGui.QWidget):
         if disabled:
             self.content.setEnabled(False)        
         
+        self.below_layout.addSpacing(indentation)
+        self.below_layout.addWidget(self.content)
+        
         self.layout.addWidget(self.title_label)
-        self.layout.addWidget(self.content)
+        self.layout.addLayout(self.below_layout)
         self.layout.addSpacing(self.spacing)
         
     def set_content(self, input):
@@ -595,14 +616,18 @@ class SeriesInformationControls(QtGui.QWidget):
         
         self.update_button = QtGui.QPushButton("Update")
         self.delete_button = QtGui.QPushButton("Delete")
-        self.goto_series_button = QtGui.QPushButton("Go to Series")
+        self.goto_series_button = QtGui.QPushButton(QtGui.QIcon("images/go-up.png"),"")
+        self.goto_episode_button = QtGui.QPushButton(QtGui.QIcon("images/go-down.png"),"")
+        
+        
         self.goto_other_view = QtGui.QPushButton(QtGui.QIcon("images/view-refresh.png"), "")
         self.goto_other_view.clicked.connect(self.next.emit)
         
         header_layout.addWidget(self.delete_button)
         header_layout.addWidget(self.update_button)
-        header_layout.addWidget(self.goto_series_button)
         header_layout.addWidget(self.goto_other_view)
+        header_layout.addWidget(self.goto_series_button)        
+        header_layout.addWidget(self.goto_episode_button)
         self.setLayout(header_layout)
 
 
@@ -611,12 +636,28 @@ class NavigationWidget(QtGui.QWidget):
     
     def __init__(self, parent = None):
         QtGui.QWidget.__init__(self, parent)
-        self.layout = QtGui.QHBoxLayout()
+        self.layout = QtGui.QVBoxLayout()
         self.setLayout(self.layout)
         self.build_images()
         self.type_label = QtGui.QLabel("")
         self.layout.addWidget(self.type_label)
-    
+        
+        self.navigation_layout = QtGui.QHBoxLayout()
+        self.layout.addLayout(self.navigation_layout)
+        
+        
+        self.go_first_button = QtGui.QPushButton(QtGui.QIcon("images/go-first.png"),"")        
+        self.navigation_layout.addWidget(self.go_first_button)
+        
+        self.go_previous_button = QtGui.QPushButton(QtGui.QIcon("images/go-previous.png"),"")        
+        self.navigation_layout.addWidget(self.go_previous_button)
+        
+        self.go_next_button = QtGui.QPushButton(QtGui.QIcon("images/go-next.png"),"")
+        self.navigation_layout.addWidget(self.go_next_button)
+        
+        self.go_last_button = QtGui.QPushButton(QtGui.QIcon("images/go-last.png"),"")
+        self.navigation_layout.addWidget(self.go_last_button)
+        
     
     def build_images(self):
         self.images = {}
@@ -654,10 +695,9 @@ class EpisodeOverviewWidget(QtGui.QWidget):
 
 
 
-
-
-
 class TimelineWidget(QtGui.QLabel):
+    
+    load = QtCore.pyqtSignal("PyQt_PyObject")
     
     def __init__(self, parent = None):
         QtGui.QLabel.__init__(self, parent)
@@ -665,11 +705,14 @@ class TimelineWidget(QtGui.QLabel):
         self.setMouseTracking(True)
         self.mouse_position = [0,0]
         self.inside = False
+        self.coord_episodes = {}
+        self.tolerance = 2 
     
-    def set_dates(self, begin_date, end_date, episode_dates = None):
+    def set_dates(self, begin_date, end_date, series = None, episode = None):
         self.begin_date = begin_date
         self.end_date = end_date
-        self.episode_dates = episode_dates
+        self.series = series
+        self.episode = episode
         self.update()
     
     def enterEvent(self, event):
@@ -683,10 +726,23 @@ class TimelineWidget(QtGui.QLabel):
 
     def mouseMoveEvent(self, event):
         self.mouse_position = [event.x(), event.y()]
+        self.coord_episodes = {}
         self.update()
-        QtGui.QLabel.mouseMoveEvent(self, event)     
-        
+        QtGui.QLabel.mouseMoveEvent(self, event)
+                
     
+    def mouseDoubleClickEvent(self, event):
+        x = event.x()
+        episode = None
+        for x_range in range(x-self.tolerance,x+self.tolerance):
+            try:
+                episode = self.coord_episodes[x_range]
+            except KeyError:
+                pass
+        if episode is not None:
+            self.load.emit(episode)
+        QtGui.QLabel.mouseDoubleClickEvent(self, event)        
+        
     def paintEvent(self, event):
         size = self.size()
         
@@ -735,20 +791,21 @@ class TimelineWidget(QtGui.QLabel):
         blue_big = QtGui.QPen(Qt.blue, 4, Qt.SolidLine)
         paint.setPen(red_small)
              
-        #draw episode dates ticks
+        #draw episode dates ticks        
         try:
-            for episode_days in self.episode_dates:
-                episode_days = (episode_days-self.begin_date).days
-                x = spacing+int(step_size*episode_days)
-                tolerance = 2
-                if self.inside and self.mouse_position[0]-tolerance < x and self.mouse_position[0]+tolerance > x :
-                    self.setToolTip(str(datetime.timedelta(days=episode_days)+self.begin_date))
+            for episode in self.series.episodes:
+                episode_days = (episode.date-self.begin_date).days
+                x = spacing+int(step_size*episode_days)                                                              
+                if  episode == self.episode or (self.inside and self.mouse_position[0]-self.tolerance < x and self.mouse_position[0]+self.tolerance > x):
+                    if self.inside:
+                        self.coord_episodes[x] = episode                         
+                    if episode != self.episode: 
+                        self.setToolTip(episode.get_normalized_name() + "\n" + str(episode.date))
                     paint.setPen(blue_big)
                     paint.drawLine(x,height+tick_height*2,x,height-tick_height*2)                    
                 else:
-                    paint.setPen(red_small)
-                    paint.drawLine(x,height+tick_height,x,height-tick_height)
-                     
+                    paint.setPen(red_small)                    
+                    paint.drawLine(x,height+tick_height,x,height-tick_height)                     
                 
         except TypeError:
             pass        
@@ -782,6 +839,10 @@ class SeriesInformationWidget(QtGui.QWidget):
         
         self.tableview = tableview
         self.navigation_widget = NavigationWidget(self)
+        self.navigation_widget.go_first_button.clicked.connect(self.go_first)
+        self.navigation_widget.go_last_button.clicked.connect(self.go_last)
+        self.navigation_widget.go_next_button.clicked.connect(self.go_next)
+        self.navigation_widget.go_previous_button.clicked.connect(self.go_previous)
         
         self.stacked_widget = QtGui.QStackedWidget()        
         
@@ -794,20 +855,18 @@ class SeriesInformationWidget(QtGui.QWidget):
         self.right_column = QtGui.QVBoxLayout()
 
         self.attribute_layout.addLayout(self.ultra_left_column)
-        self.attribute_layout.addLayout(self.left_column)
-        #self.attribute_layout.addSpacing(20)
+        self.attribute_layout.addLayout(self.left_column)        
         self.attribute_layout.addLayout(self.right_column)        
         
         self.setLayout(self.main_layout)
         
         self.main_widget = QtGui.QWidget()       
-        main_widget_layout = QtGui.QVBoxLayout()
-        #main_widget_layout.setSizeConstraint(QtGui.QLayout.SetFixedSize)
+        main_widget_layout = QtGui.QVBoxLayout()        
         self.main_widget.setLayout(main_widget_layout)
         main_widget_layout.addLayout(self.attribute_layout)
         
         self.seenit = SeriesInformationCategory("Seen it?", type = QtGui.QCheckBox)
-        self.title = SeriesInformationCategory("Title", type = SeriesInformationControls)
+        self.title = SeriesInformationCategory("Title", font_size=12, type=SeriesInformationControls)
         self.movieclipwidget = SeriesInformationCategory("Movie Clips", type = MovieClipOverviewWidget)
         self.source = SeriesInformationCategory("Source")        
         self.director = SeriesInformationCategory("Director")
@@ -816,6 +875,7 @@ class SeriesInformationWidget(QtGui.QWidget):
         self.plot = SeriesInformationCategory("Plot", type = QtGui.QTextEdit)
         self.genre = SeriesInformationCategory("Genre")
         self.timeline = TimelineWidget()
+        self.timeline.load.connect(self.load_information)
         
         
         self.control_layout.addWidget(self.title)
@@ -826,7 +886,7 @@ class SeriesInformationWidget(QtGui.QWidget):
         self.main_layout.addWidget(self.timeline)
         self.main_layout.addWidget(self.stacked_widget)
         
-        self.main_widgets = [self.seenit, self.director, self.plot, self.genre, self.source, self.rating, self.airdate]
+        self.main_widgets = [self.seenit, self.plot, self.genre, self.source, self.rating, self.airdate, self.director]
         
         self.title.content.next.connect(self.next)
         
@@ -834,11 +894,8 @@ class SeriesInformationWidget(QtGui.QWidget):
         
         self.ultra_left_column.addWidget(self.movie_picture)
         
-        for index, widget in enumerate(self.main_widgets):
-            if index % 2 == 0 or True:
-                self.left_column.addWidget(widget)
-            else:
-                self.right_column.addWidget(widget)
+        for widget in self.main_widgets:
+            self.left_column.addWidget(widget)
         
         self.right_column.addWidget(self.movieclipwidget)
         
@@ -851,6 +908,10 @@ class SeriesInformationWidget(QtGui.QWidget):
         self.delete_button = self.title.content.delete_button
         self.update_button = self.title.content.update_button
         self.goto_series_button = self.title.content.goto_series_button
+        self.goto_series_button.clicked.connect(self.go_up)
+        
+        self.goto_episode_button = self.title.content.goto_episode_button
+        self.goto_episode_button.clicked.connect(self.go_down)      
         
         self.stacked_widget.addWidget(self.main_widget)
         self.stacked_widget.addWidget(self.nothing_to_see_here_widget)
@@ -863,7 +924,81 @@ class SeriesInformationWidget(QtGui.QWidget):
         self.update_button_text()                                     
                      
         self.setAcceptDrops(True)
-            
+        self.setFocusPolicy(Qt.ClickFocus)
+    
+    
+    
+    def keyPressEvent(self, event):
+        
+        decision = {Qt.Key_Left : self.go_previous,
+                    Qt.Key_Right: self.go_next,
+                    Qt.Key_Down : self.go_down,
+                    Qt.Key_Up : self.go_up,
+                    Qt.Key_End : self.go_last,
+                    Qt.Key_Home : self.go_first}
+        try:
+            decision[event.key()]()
+            event.accept()
+        except KeyError:
+            pass
+                        
+        QtGui.QWidget.keyPressEvent(self, event)
+    
+    
+    def go_up(self):
+        if isinstance(self.movie, Series):
+            pass
+        else:
+            self.load_information(self.movie.get_series())
+               
+    
+    def go_down(self):
+        if isinstance(self.movie, Series):
+            self.load_information(self.movie[0])
+        else:
+            pass
+    
+    def go_next(self):        
+        if isinstance(self.movie, Series):
+            for index, series in enumerate(series_list):
+                if series == self.movie:
+                    self.load_information(series_list[(index+1) % len(series_list)])
+                    break        
+        else:
+            episodes = self.movie.get_series().episodes
+            for index, episode in enumerate(episodes):
+                if episode == self.movie:
+                    self.load_information(episodes[(index+1) % len(episodes)])
+                    break 
+    
+    def go_previous(self):
+        if isinstance(self.movie, Series):
+            for index, series in enumerate(series_list):
+                if series == self.movie:
+                    self.load_information(series_list[index-1])
+                    break        
+        else:
+            episodes = self.movie.get_series().episodes
+            for index, episode in enumerate(episodes):
+                if episode == self.movie:
+                    self.load_information(episodes[(index-1)])
+                    break 
+    
+    def go_last(self):
+        if isinstance(self.movie, Series):
+            self.load_information(series_list[-1])
+        else:
+            episodes = self.movie.get_series().episodes
+            self.load_information(episodes[-1])
+    
+    
+    def go_first(self):
+        if isinstance(self.movie, Series):
+            self.load_information(series_list[0])
+        else:
+            episodes = self.movie.get_series().episodes
+            self.load_information(episodes[0])
+    
     def reload(self):
         self.load_information(self.movie)        
         
@@ -892,6 +1027,8 @@ class SeriesInformationWidget(QtGui.QWidget):
 
     def load_information(self, movie):
         #print "loading", movie
+        
+        #traceback.print_stack()
                 
         self.movie = movie
         
@@ -906,20 +1043,24 @@ class SeriesInformationWidget(QtGui.QWidget):
         if isinstance(self.movie, Series):
             self.delete_button.setVisible(True)
             self.goto_series_button.setVisible(False)
+            self.goto_episode_button.setVisible(True)            
             self.rating.setVisible(False)
             self.seenit.setVisible(False)
             begin_date, end_date = movie.get_episode_date_range()
-            episode_dates = [episode.date for episode in movie.episodes if episode.date != None] # potential slow operation
+            series = movie
+            episode = None        
         else:
             self.rating.setVisible(True)
             self.rating.setText(movie.get_ratings())
             self.plot.setText(movie.plot)
             self.delete_button.setVisible(False)
-            self.goto_series_button.setVisible(True)
+            self.goto_series_button.setVisible(True)  
+            self.goto_episode_button.setVisible(False)          
             self.seenit.setVisible(True)
             self.seenit.content.setChecked(self.movie.seen_it)
             begin_date, end_date = movie.get_series().get_episode_date_range()
-            episode_dates = [movie.date]
+            series = movie.get_series()
+            episode = movie            
         
         # Handle the title
         try:
@@ -947,16 +1088,12 @@ class SeriesInformationWidget(QtGui.QWidget):
         self.update_button.clicked.connect(functools.partial(mainwindow.update_movie, movie))
         
         
-        try:
-            self.goto_series_button.clicked.disconnect()
-        except TypeError:
-            pass
-        self.goto_series_button.clicked.connect(functools.partial(mainwindow.load_series_info_from_episode, movie))
+
         
                 
         self.movieclipwidget.content.load_movieclips(movie)
         
-        self.timeline.set_dates(begin_date, end_date, episode_dates=episode_dates)
+        self.timeline.set_dates(begin_date, end_date, series=series, episode=episode)
           
         
     def dragEnterEvent(self, event):
@@ -1012,7 +1149,7 @@ class EpisodeTableWidget(QtGui.QTableView):
         try:
             if model.filled:
                 QtGui.QTableView.setModel(self, model)               
-                model.dataChanged.connect(self.callback)
+                #model.dataChanged.connect(self.callback) # Using this causes the first episode to be selected when updating the complete series
                 self.selectionModel().selectionChanged.connect(self.callback)
                 self.overview.stacked_widget.setCurrentWidget(self.overview.series_information_dock)
                 self.overview.series_information_dock.seriesinfo.load_information(model.series)
@@ -1714,7 +1851,7 @@ class MainWindow(QtGui.QMainWindow):
         wizard.exec_()
      
     def update_movie(self, movie):
-        job = MovieUpdater(movie)
+        job = MovieUpdater(movie)        
         job.finished.connect(functools.partial(self.seriesinfo.load_information, movie))
         job.finished.connect(functools.partial(self.rebuild_after_update, movie))
         self.jobs.append(job)
@@ -1851,7 +1988,7 @@ class MainWindow(QtGui.QMainWindow):
     
             self.tableview.scrollTo(goto_index, QtGui.QAbstractItemView.PositionAtTop)
 
-    def load_episode_information_at_index(self, selected, deselected):
+    def load_episode_information_at_index(self, selected, deselected):        
         index = QtCore.QModelIndex()       
         try:
             index = selected.indexes()[0]
@@ -1859,7 +1996,7 @@ class MainWindow(QtGui.QMainWindow):
             index = selected
         except IndexError, TypeError:  
             pass
-        finally:
+        finally:            
             self.seriesinfo.load_information(self.existing_series[index.row()])
                  
 
