@@ -3,7 +3,7 @@
 import datetime
 import tvrage.api
 
-from diribeomodel import Episode, Series, NoInternetConnectionAvailable, series_list, DownloadedSeries, settings, MergePolicy
+from diribeomodel import Episode, Series, NoInternetConnectionAvailable, series_list, DownloadedSeries, settings
 
 class LibraryWrapper(object):
     def __init__(self):

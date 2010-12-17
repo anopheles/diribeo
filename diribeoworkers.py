@@ -275,7 +275,7 @@ class VersionChecker(WorkerThread):
     def run(self):
         self.waiting.emit()
         try:
-            content = urllib2.urlopen(HOMEPAGE+"tasks/currentversion_v1").read()
+            content = urllib2.urlopen(HOMEPAGE+"/tasks/currentversion_v1").read()
             version = tuple(json.loads(content)["version"])
             self.finished.emit(version)
         except urllib2.URLError:

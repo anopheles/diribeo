@@ -794,21 +794,22 @@ class TimelineWidget(QtGui.QLabel):
         #draw episode dates ticks        
         try:
             for episode in self.series.episodes:
-                episode_days = (episode.date-self.begin_date).days
-                x = spacing+int(step_size*episode_days)                                                              
-                if  episode == self.episode or (self.inside and self.mouse_position[0]-self.tolerance < x and self.mouse_position[0]+self.tolerance > x):
-                    if self.inside:
-                        self.coord_episodes[x] = episode                         
-                    if episode != self.episode: 
-                        self.setToolTip(episode.get_normalized_name() + "\n" + str(episode.date))
-                    paint.setPen(blue_big)
-                    paint.drawLine(x,height+tick_height*2,x,height-tick_height*2)                    
-                else:
-                    paint.setPen(red_small)                    
-                    paint.drawLine(x,height+tick_height,x,height-tick_height)                     
-                
+                if episode.date is not None:
+                    episode_days = (episode.date-self.begin_date).days
+                    x = spacing+int(step_size*episode_days)                                                              
+                    if  episode == self.episode or (self.inside and self.mouse_position[0]-self.tolerance < x and self.mouse_position[0]+self.tolerance > x):
+                        if self.inside:
+                            self.coord_episodes[x] = episode                         
+                        if episode != self.episode: 
+                            self.setToolTip(episode.get_normalized_name() + "\n" + str(episode.date))
+                        paint.setPen(blue_big)
+                        paint.drawLine(x,height+tick_height*2,x,height-tick_height*2)                    
+                    else:
+                        paint.setPen(red_small)                    
+                        paint.drawLine(x,height+tick_height,x,height-tick_height)                     
+                    
         except TypeError:
-            pass        
+            pass
         
         #end painting
         paint.end()
