@@ -11,14 +11,28 @@ from PyQt4 import QtCore
 
 class MergePolicy(object):
     OVERWRITE, MORE_INFO = range(2)
+    
+    @staticmethod
+    def to_string(policy):
+        string_lookup = {MergePolicy.OVERWRITE : "Overwrite", 
+                         MergePolicy.MORE_INFO : "More Information"}
+        try:            
+            return string_lookup[policy]
+        except KeyError:
+            return "-"
+
+def iter_attributes(obj):
+    return ((n, getattr(obj, n)) for n in dir(obj) if (not n.startswith('_') and not n.startswith('to_string')))
+
 
 class MovieClip(object):
-    def __init__(self, filepath, identifier = None, filesize = None, checksum = None, thumbnails = None, duration = None):
+    def __init__(self, filepath, identifier = None, filesize = None, checksum = None, thumbnails = None, duration = None, dimensions = None):
         self.filepath = filepath
                     
         self.identifier = identifier 
         self.checksum = checksum
         self.duration = duration # in seconds
+        self.dimensions = dimensions # [width, height]
             
         if filesize is None:
             self.get_filesize()
@@ -27,8 +41,7 @@ class MovieClip(object):
         
         if thumbnails is None:
             thumbnails = []    
-        self.thumbnails = thumbnails       
-        
+        self.thumbnails = thumbnails
     
     def get_filename(self):
         return os.path.basename(self.filepath)    
@@ -58,7 +71,11 @@ class MovieClip(object):
     def delete_thumbnails(self):
         ''' Delete the generated thumbnails '''                
         for filepath, timecode in self.thumbnails:
-            os.remove(filepath)
+            try:
+                os.remove(filepath)
+            except WindowsError: #TODO
+                pass
+                
             
         self.thumbnails = []
     
@@ -111,7 +128,7 @@ def SeriesOrganizerDecoder(dct):
         return Series(dct["title"], identifier = dct["identifier"], plot = dct["plot"], episodes = dct["episodes"], rating = dct["rating"], director = dct["director"], genre = dct["genre"], pictures = dct['pictures'], date = dct["date"])
 
     if '__movieclip__' in dct:        
-        return MovieClip(dct['filepath'], identifier = dct['identifier'], filesize = dct['filesize'], checksum = dct['checksum'], thumbnails = dct["thumbnails"], duration = dct["duration"])
+        return MovieClip(dct['filepath'], identifier = dct['identifier'], filesize = dct['filesize'], checksum = dct['checksum'], thumbnails = dct["thumbnails"], duration = dct["duration"], dimensions = dct["dimensions"])
     
     if '__movieclips__' in dct:        
         return MovieClipManager(dictionary = dct['dictionary'])
@@ -138,7 +155,7 @@ class SeriesOrganizerEncoder(json.JSONEncoder):
             return { "__series__" : True, "title" : obj.title, "plot" : obj.plot, "episodes" : obj.episodes, "identifier" : obj.identifier, "pictures" : obj.pictures,  "rating" : obj.rating,  "director" : obj.director, "genre" : obj.genre, "date" : obj.date}
 
         if isinstance(obj, MovieClip):
-            return { "__movieclip__" : True, "filepath" : obj.filepath, "filesize" : obj.filesize, "checksum" : obj.checksum, "identifier" : obj.identifier, "thumbnails" : obj.thumbnails, "duration" : obj.duration}        
+            return { "__movieclip__" : True, "filepath" : obj.filepath, "filesize" : obj.filesize, "checksum" : obj.checksum, "identifier" : obj.identifier, "thumbnails" : obj.thumbnails, "duration" : obj.duration, "dimensions" : obj.dimensions}        
         
         if isinstance(obj, Settings):
             return { "__settings__" : True, "settings" : obj.settings} 
@@ -191,7 +208,7 @@ class Settings(object):
             pass
 
     def get_sources(self):
-        dictionary = {"imdb" : {}, "tvrage" : {}} #TODO  
+        dictionary = {"imdb" : {}, "tvrage" : {}} #TODO
         return dict([[x, True] for x in dictionary.keys()])
     
     def get_normalized_filename(self, filename, episode):
@@ -397,19 +414,19 @@ class Series(object):
             try:
                 self.seasons[episode.descriptor[0]].append(episode)
             except KeyError:
-                self.seasons[episode.descriptor[0]] = []
+                self.seasons[episode.descriptor[0]] = Season(self, episode.descriptor[0])
                 self.seasons[episode.descriptor[0]].append(episode)
 
         return self.seasons
 
     def accumulate_episode_count(self, season):
-        ''' This function adds all the preceeding episodes of the given season
+        ''' This function adds all the preceding episodes of the given season
         and returns the accumulated value '''
 
         seasons = self.get_seasons()        
         accumulated_sum = 0
-        for index, seasonnumber in enumerate(seasons):
-            if index - 1 == season:
+        for seasonnumber in seasons:
+            if seasonnumber == season:
                 break
             accumulated_sum += len(seasons[seasonnumber])
 
@@ -435,27 +452,43 @@ class Series(object):
     def get_episode_date_range(self):
         """ Returns the date of the first and last episode of this series
         """
-        
-        try:
-            current_first_date = None
-            current_last_date = None 
-            
-            
-            for episode in self.episodes:
-                if episode.date != None:                    
-                    current_first_date = episode.date
-                    break               
-            
-            for episode in reversed(self.episodes):
-                if episode.date != None:
-                    current_last_date = episode.date
-                    break
-            
-            return current_first_date, current_last_date
-        except IndexError:
-            return datetime.date.today(), datetime.date.today()-datetime.timedelta(1)
-        
+        try:        
+            dates = [episode.date for episode in self.episodes if episode.date is not None]
+            return min(dates), max(dates)
+        except ValueError:
+            return datetime.date.today(), datetime.date.today()
 
+        
+class Season(object):
+    def __init__(self, series, season_number):
+        self.series = series
+        self.episodes = []
+        self.pictures = []
+        self.plot = ""
+        self.seen_it = True
+        self.season_number = season_number
+ 
+    def __str__(self):
+        return "Season(%s - #%s %s)" % (self.series.title, self.season_number, len(self.episodes))
+ 
+    def __len__(self):
+        return len(self.episodes)
+        
+    def __iter__(self):
+        return self.episodes.__iter__()
+    
+    def append(self, episode):
+        self.episodes.append(episode)
+    
+    def get_date_range(self):
+        pass
+    
+    def get_ratings(self):
+        return ""
+    
+    def __cmp__(self, other):
+        return cmp(self.season_number, other.season_number)
+    
 class Episode(object):
     def __init__(self, title = "", descriptor = None, series = "", date = None, plot = "", identifier = None, rating = None, pictures = None, director = "", runtime = "", genre = "", seen_it = False, number = 0):
         
@@ -523,7 +556,7 @@ class Episode(object):
             if len(self.plot) < len(new_episode.plot):
                 self.plot = new_episode.plot
             self.rating = new_episode.rating
-        elif merge_policy == MergePolicy.OVERWRITE: 
+        elif merge_policy == MergePolicy.OVERWRITE:
             self.title = new_episode.title
             self.descriptor = new_episode.descriptor
             self.plot = new_episode.plot
@@ -533,6 +566,8 @@ class Episode(object):
             self.runtime = new_episode.runtime
             self.genre = new_episode.genre
             self.seen_it = new_episode.seen_it
+        else:
+            pass
             
     
     def get_ratings(self):

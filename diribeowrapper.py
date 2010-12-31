@@ -36,7 +36,7 @@ class LibraryWrapper(object):
 
 
 class SourceWrapper(object):
-    def __init__(self):
+    def __init__(self):        
         self.month_lookup = { "January" : 1,
                               "February" : 2,
                               "March": 3, 
@@ -57,8 +57,7 @@ class SourceWrapper(object):
         raise NotImplementedError
     
     def search_movie(self, title):
-        raise NotImplementedError
-    
+        raise NotImplementedError    
     
     def update_movie(self, movie):
         if isinstance(movie, Series):
@@ -76,6 +75,7 @@ class TVRageWrapper(SourceWrapper):
     def __init__(self):
         SourceWrapper.__init__(self)
         self.identifier = "tvrage"
+        self.image = "images/tvrage.png"        
         
     def get_episodes(self, tvrage_series):
         episode_count = self.__get_episode_count(tvrage_series.episodes)
@@ -130,7 +130,8 @@ class IMDBWrapper(SourceWrapper):
         # Create the object that will be used to access the IMDb's database.
         self.ia  = imdb.IMDb(loggginLevel = "critical", proxy="") # by default access the web.
         
-        self.identifier = "imdb"        
+        self.identifier = "imdb"
+        self.image = "images/imdb.png"        
 
 
     def get_episodes(self, imdb_series):
