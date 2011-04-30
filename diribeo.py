@@ -7,7 +7,9 @@ __license__ = 'MIT'
 
 import sys
 import os
-import logging as log
+
+import logging
+import logging.handlers
 
 import subprocess
 import functools
@@ -22,11 +24,11 @@ import diribeowrapper
 import diribeoutils
 
 
-from diribeomodel import Series, Episode, Season, MovieClipAssociation, MergePolicy
+from diribeomodel import Series, Episode, Season, MovieClipAssociation, MergePolicy, PlacementPolicy
 from diribeoworkers import SeriesSearchWorker, ModelFiller, MultipleMovieClipAssociator, ThumbnailGenerator, MultipleAssignerThread, MovieUpdater, VersionChecker, HOMEPAGE
 
 
-from PyQt4 import QtGui, QtSvg
+from PyQt4 import QtGui
 from PyQt4 import QtCore
 from PyQt4.QtCore import Qt
 
@@ -37,11 +39,18 @@ THUMBNAIL_WIDTH = 150
 SOURCE_IMAGE_HEIGHT = 75 
 
 
-# Initialize logger
-log_filename = "logger_output.out"
-#log.basicConfig(filename=log_filename,  format='%(asctime)s %(levelname)s %(message)s', level=log.DEBUG, filemode='w')
+# Initialize logger & set logging level
+log = logging.getLogger("Diribeo Logger")
+log.setLevel(logging.DEBUG)
 
 
+def open_folder(folder):            
+    if folder is not None: 
+        try:
+            os.startfile(folder) # Unix systems do not have startfile
+        except AttributeError:         
+            subprocess.Popen(['xdg-open', folder])
+            
 class WorkerThreadManager(object):
     def __init__(self):
         self.worker_thread_dict = {}
@@ -73,10 +82,10 @@ class WorkerThreadManager(object):
     def process_progress(self, worker_thread, current, maximum):
         self.worker_thread_dict[worker_thread] = [current, maximum]
         
-    def append(self, worker_thread):     
-        worker_thread.waiting.connect(functools.partial(self.process_waiting, worker_thread))
+    def append(self, worker_thread):
         worker_thread.finished.connect(functools.partial(self.process_finished, worker_thread))
         worker_thread.progress.connect(functools.partial(self.process_progress, worker_thread))
+        worker_thread.waiting.connect(functools.partial(self.process_waiting, worker_thread))
                 
         self.worker_thread_dict[worker_thread] = [0,0]
         if not self.timer.isActive():
@@ -87,7 +96,9 @@ class WorkerThreadManager(object):
     def refresh_progressbar(self):
         current, maximum = map(sum, zip(*self.worker_thread_dict.values()))
         self.progressbar.setValue(current)
-        self.progressbar.setMaximum(maximum)  
+        self.progressbar.setMaximum(maximum)
+        if current==maximum:
+            self.progressbar.waiting()
     
     def refresh_statusbar(self):
         list_of_descriptions = []
@@ -229,10 +240,10 @@ class LocalTreeWidget(QtGui.QTreeWidget):
                 self.setCurrentItem(item)
                 menu = QtGui.QMenu(self)
                 mark_as_seen_action = QtGui.QAction("Mark as seen", self)
-                mark_as_seen_action.triggered.connect(functools.partial(self.mark_as_seen, True, item.movie))
+                mark_as_seen_action.triggered.connect(functools.partial(self.mark_as_seen, True, item))
                 
                 mark_as_not_seen_action = QtGui.QAction("Mark as not seen", self) 
-                mark_as_not_seen_action.triggered.connect(functools.partial(self.mark_as_seen, False, item.movie))
+                mark_as_not_seen_action.triggered.connect(functools.partial(self.mark_as_seen, False, item))
                 
                 menu.addAction(mark_as_seen_action)
                 menu.addAction(mark_as_not_seen_action)
@@ -240,7 +251,9 @@ class LocalTreeWidget(QtGui.QTreeWidget):
             
         QtGui.QTreeWidget.mousePressEvent(self, event)       
 
-    def mark_as_seen(self, seen, movie):
+    def mark_as_seen(self, seen, item):
+        movie = item.movie
+                
         if isinstance(movie, Series):
             for episode in movie.episodes:
                 episode.seen_it = seen
@@ -251,6 +264,7 @@ class LocalTreeWidget(QtGui.QTreeWidget):
             movie.seen_it = seen
         
         mainwindow.tableview.model().refresh_table()
+        mainwindow.seriesinfo.reload()
     
     def dragEnterEvent(self, event):
         event.acceptProposedAction()
@@ -293,7 +307,7 @@ class LocalSearch(QtGui.QFrame):
         pass
         #self.localseriestree.sortItems(0, Qt.AscendingOrder)
 
-    def remove_series(self, series):        
+    def remove_series(self, series):      
         count = self.localseriestree.topLevelItemCount()
         for number in range(count):            
             item = self.localseriestree.topLevelItem(number)
@@ -326,7 +340,7 @@ class LocalSearch(QtGui.QFrame):
             child_season = QtGui.QTreeWidgetItem(parent_series,["Season " + str('%0.2d' % seasonnumber)])
             child_season.movie = seasons[seasonnumber]
             for episode in seasons[seasonnumber]:
-                child_episode = QtGui.QTreeWidgetItem(child_season,[episode.title]) 
+                child_episode = QtGui.QTreeWidgetItem(child_season,[episode.title])
                 child_episode.movie = episode
         self.localseriestree.addTopLevelItem(parent_series)
 
@@ -353,8 +367,6 @@ class PixmapCache(object):
             pixmap = pixmap.scaledToWidth(THUMBNAIL_WIDTH)
             self.pixmaps[filepath] = pixmap
             return pixmap
-
-
 
 class MoviePicture(QtGui.QWidget):    
     
@@ -515,19 +527,11 @@ class MovieClipInformationWidget(QtGui.QFrame):
         self.play_button.clicked.connect(self.play)        
         self.delete_button.clicked.connect(self.delete)
         self.remove_button.clicked.connect(self.remove)
-        self.open_button.clicked.connect(self.open_folder)
+        self.open_button.clicked.connect(functools.partial(open_folder, self.movieclip.get_folder()))
         self.thumbnail_button.clicked.connect(functools.partial(mainwindow.generate_thumbnails, self.movie, self.movieclip))
         
         self.load_information(movieclip)        
 
-    def open_folder(self):
-        folder = self.movieclip.get_folder()
-        if folder is not None: 
-            try:
-                os.startfile(folder) # Unix systems do not have startfile
-            except AttributeError:         
-                subprocess.Popen(['xdg-open', self.movieclip.get_folder()])
-        
     def load_information(self, movieclip):
         self.title.setText(movieclip.get_filename())
         
@@ -662,8 +666,8 @@ class SeriesInformationControls(QtGui.QWidget):
         header_layout.addWidget(self.delete_button)
         header_layout.addWidget(self.update_button)
         header_layout.addWidget(self.goto_other_view)
-        header_layout.addWidget(self.go_up_button)        
         header_layout.addWidget(self.go_down_button)
+        header_layout.addWidget(self.go_up_button)        
         self.setLayout(header_layout)
 
 
@@ -718,7 +722,7 @@ class EpisodeOverviewWidget(QtGui.QWidget):
         self.stacked_widget = QtGui.QStackedWidget() 
         
         self.tableview = EpisodeTableWidget(self)
-        self.series_information_dock = SeriesInformationDock(self.tableview )        
+        self.series_information_dock = SeriesInformationDock(self.tableview)        
         self.waiting_widget = WaitingWidget() 
         self.getting_started_widget = GettingStartedWidget() 
         
@@ -818,49 +822,50 @@ class TimelineWidget(QtGui.QLabel):
         total_days = (self.end_date-self.begin_date).days
         reference = self.find_new_years_eve(self.begin_date, self.end_date)
         
-        step_size = float(width-2*spacing)/total_days
-        for year, day_sum in reference:      
-            x = spacing+int(step_size*day_sum)
-            #calculate width of last date
-            font_metrics = QtGui.QFontMetrics(paint.font())
-            text_width = font_metrics.width(str(year+1))
-            paint.drawLine(x,height+tick_height,x,height-tick_height)
-            paint.drawText(QtCore.QPoint(x-text_width/2.0,height-2*tick_height), str(year+1))
+        if total_days != 0:
+            step_size = float(width-2*spacing)/total_days
+            for year, day_sum in reference:      
+                x = spacing+int(step_size*day_sum)
+                #calculate width of last date
+                font_metrics = QtGui.QFontMetrics(paint.font())
+                text_width = font_metrics.width(str(year+1))
+                paint.drawLine(x,height+tick_height,x,height-tick_height)
+                paint.drawText(QtCore.QPoint(x-text_width/2.0,height-2*tick_height), str(year+1))
+                        
+            #draw episode dates ticks        
+            seasons = self.series.get_seasons()
+            for season in seasons:
+                color = diribeoutils.get_color_shade(season, len(seasons),saturation=1)            
+                current_pen = QtGui.QPen(color, 4, Qt.SolidLine)
+                comp_color = diribeoutils.get_complementary_color(color)
+                antagonist_pen = QtGui.QPen(comp_color, 4, Qt.SolidLine)
+                for episode in seasons[season]:
+                    try:
+                        episode_days = (episode.date-self.begin_date).days                    
+                        x = spacing+int(step_size*episode_days)                                                              
+                        if episode in self.episodes or (self.inside and self.mouse_position[0]-self.tolerance < x and self.mouse_position[0]+self.tolerance > x):
+                            if self.inside:
+                                self.coord_episodes[x] = episode                         
+                            if episode not in self.episodes: 
+                                self.setToolTip(episode.get_normalized_name() + "\n" + str(episode.date))
+                            paint.setPen(antagonist_pen)
+                            paint.drawLine(x,height+tick_height*2,x,height-tick_height*2)                    
+                        else:
+                            offset = 1
+                            if season == self.season_number:
+                                offset = 2
+                            paint.setPen(current_pen)                    
+                            paint.drawLine(x,height+tick_height*offset,x,height-tick_height*offset)                     
                     
-        #draw episode dates ticks        
-        seasons = self.series.get_seasons()
-        for season in seasons:
-            color = diribeoutils.get_color_shade(season, len(seasons),saturation=1)            
-            current_pen = QtGui.QPen(color, 4, Qt.SolidLine)
-            comp_color = diribeoutils.get_complementary_color(color)
-            antagonist_pen = QtGui.QPen(comp_color, 4, Qt.SolidLine)
-            for episode in seasons[season]:
-                try:
-                    episode_days = (episode.date-self.begin_date).days                    
-                    x = spacing+int(step_size*episode_days)                                                              
-                    if episode in self.episodes or (self.inside and self.mouse_position[0]-self.tolerance < x and self.mouse_position[0]+self.tolerance > x):
-                        if self.inside:
-                            self.coord_episodes[x] = episode                         
-                        if episode not in self.episodes: 
-                            self.setToolTip(episode.get_normalized_name() + "\n" + str(episode.date))
-                        paint.setPen(antagonist_pen)
-                        paint.drawLine(x,height+tick_height*2,x,height-tick_height*2)                    
-                    else:
-                        offset = 1
-                        if season == self.season_number:
-                            offset = 2
-                        paint.setPen(current_pen)                    
-                        paint.drawLine(x,height+tick_height*offset,x,height-tick_height*offset)                     
-                
-                except TypeError:
-                    pass
+                    except TypeError:
+                        pass
         
         #end painting
         paint.end()
 
     def find_new_years_eve(self, begin_date, end_date):
         
-        assert begin_date < end_date
+        assert begin_date <= end_date
         
         output = []
         current_date = begin_date
@@ -876,6 +881,16 @@ class TimelineWidget(QtGui.QLabel):
                 break
             
         return output            
+
+class SourceImage(QtGui.QLabel):
+    def __init__(self, parent=None):
+        QtGui.QLabel.__init__(self, parent)
+        self.url = ""
+
+    def mousePressEvent(self, event):   
+        if QtGui.QDesktopServices.openUrl(QtCore.QUrl(self.url)):
+            event.accept()                          
+        QtGui.QLabel.mousePressEvent(self, event)   
             
 class SeriesInformationWidget(QtGui.QWidget):
     
@@ -910,14 +925,14 @@ class SeriesInformationWidget(QtGui.QWidget):
         self.main_widget.setLayout(main_widget_layout)
         main_widget_layout.addLayout(self.attribute_layout)
         
-        self.seenit = SeriesInformationCategory("Seen it?", type = QtGui.QCheckBox)
+        self.seenit = SeriesInformationCategory("Seen it?", type=QtGui.QCheckBox)
         self.title = SeriesInformationCategory("Title", font_size=12, type=SeriesInformationControls)
-        self.movieclipwidget = SeriesInformationCategory("Movie Clips", type = MovieClipOverviewWidget)
-        self.source = SeriesInformationCategory("Source")        
+        self.movieclipwidget = SeriesInformationCategory("Movie Clips", type=MovieClipOverviewWidget)
+        self.source = SeriesInformationCategory("Source", type=SourceImage)        
         self.director = SeriesInformationCategory("Director")
         self.rating = SeriesInformationCategory("Ratings")
         self.airdate = SeriesInformationCategory("Air Date")
-        self.plot = SeriesInformationCategory("Plot", type = QtGui.QTextEdit)
+        self.plot = SeriesInformationCategory("Plot", type=QtGui.QTextEdit)
         self.genre = SeriesInformationCategory("Genre")
         self.timeline = TimelineWidget()
         self.timeline.load.connect(self.load_information)
@@ -1002,7 +1017,7 @@ class SeriesInformationWidget(QtGui.QWidget):
     
     def go_down(self):
         if isinstance(self.movie, Series):
-            self.load_information(self.movie.get_seasons()[1])
+            self.load_information(self.movie.get_seasons().values()[0])
         elif isinstance(self.movie, Season):
             self.load_information(self.movie.episodes[0])
         elif isinstance(self.movie, Episode):
@@ -1098,7 +1113,7 @@ class SeriesInformationWidget(QtGui.QWidget):
     def clear_all_info(self):
         self.stacked_widget.setCurrentWidget(self.nothing_to_see_here_widget)
 
-    def load_information(self, movie):
+    def load_information(self, movie, position_table=True):
         #print "loading", movie
         
         #traceback.print_stack()
@@ -1109,9 +1124,6 @@ class SeriesInformationWidget(QtGui.QWidget):
         self.movie_picture.load_picture()
         
         self.navigation_widget.changeType(movie)
-        
-        if self.stacked_widget.currentWidget() != self.tableview:
-            self.stacked_widget.setCurrentWidget(self.main_widget)
         
         season_number = None
             
@@ -1160,9 +1172,15 @@ class SeriesInformationWidget(QtGui.QWidget):
             pixmap = QtGui.QPixmap(library.implementations[implementation].image)
             pixmap = pixmap.scaledToHeight(SOURCE_IMAGE_HEIGHT)
             self.source.content.setPixmap(pixmap)
-            self.source.content.setToolTip(implementation) 
+            self.source.content.setToolTip(implementation)
         except AttributeError:
-            self.source.content.setText(implementation)        
+            self.source.content.setText(implementation)
+        
+        # Handle the link
+        try:
+            self.source.content.url = library.implementations[implementation].get_URL(self.movie)
+        except NotImplementedError:
+            self.source.content.url = ""
         
         
         self.director.setText(movie.director) 
@@ -1187,8 +1205,12 @@ class SeriesInformationWidget(QtGui.QWidget):
         
         self.timeline.set_dates(begin_date, end_date, series=series, episodes=episodes, season_number=season_number)
         
-        goto_index = active_table_models[series].index(goto_row, 0)
-        mainwindow.tableview.scrollTo(goto_index, QtGui.QAbstractItemView.PositionAtTop)
+        if self.stacked_widget.currentWidget() != self.tableview:
+            self.stacked_widget.setCurrentWidget(self.main_widget)
+        
+        if position_table:
+            goto_index = active_table_models[series].index(goto_row, 0)            
+            mainwindow.tableview.scrollTo(goto_index, QtGui.QAbstractItemView.PositionAtTop)
        
         
     def dragEnterEvent(self, event):
@@ -1197,7 +1219,7 @@ class SeriesInformationWidget(QtGui.QWidget):
     def dragMoveEvent(self, event):
         event.acceptProposedAction()
         
-    def dropEvent(self, event):        
+    def dropEvent(self, event):
         try:
             filepaths = [url.toLocalFile() for url in event.mimeData().urls()]            
             if isinstance(self.movie, Episode):
@@ -1211,16 +1233,15 @@ class SeriesInformationWidget(QtGui.QWidget):
 
 class EpisodeTableWidget(QtGui.QTableView):    
     def __init__(self, overview, parent = None):
-        QtGui.QTableView.__init__(self, parent)
-        
-        self.overview = overview
-        
+        QtGui.QTableView.__init__(self, parent)        
+        self.overview = overview        
         self.verticalHeader().setDefaultSectionSize(125)
-        self.horizontalHeader().setStretchLastSection(True)
+        self.horizontalHeader().setStretchLastSection(True)        
         self.setShowGrid(False)
         self.setSelectionBehavior(QtGui.QTableView.SelectRows)
         self.setAcceptDrops(True)
         self.horizontalHeader().setResizeMode(QtGui.QHeaderView.ResizeToContents)
+        #self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
 
     def mouseDoubleClickEvent(self, event):
@@ -1272,6 +1293,7 @@ class SeriesInformationDock(QtGui.QDockWidget):
         scrollArea = QtGui.QScrollArea()
         scrollArea.setWidget(self.seriesinfo)
         scrollArea.setWidgetResizable(True)
+        #scrollArea.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setWidget(scrollArea)
         self.setWindowTitle("Additional Information")
         self.setFeatures(QtGui.QDockWidget.NoDockWidgetFeatures)
@@ -1303,7 +1325,7 @@ class LocalSearchDock(QtGui.QDockWidget):
 class MultipleAssociationWizard(QtGui.QWizard):
     selection_finished = QtCore.pyqtSignal("PyQt_PyObject")
     
-    def __init__(self, movieclip_associations, parent = None):
+    def __init__(self, movieclip_associations, parent=None):
         QtGui.QWizard.__init__(self, parent)    
         self.movieclip_associations = movieclip_associations
         diribeoutils.resize_to_percentage(self, SUBWINDOW_PERCENTAGE) 
@@ -1322,19 +1344,41 @@ class MultipleAssociationTableModel(QtCore.QAbstractTableModel):
         QtCore.QAbstractTableModel.__init__(self, parent)
         self.movieclip_associations = movieclip_associations
         
-        self.column_lookup = ["Filename", "Message", "Skip?", "Association"]
+        self.column_lookup = ["Filename", "Message", "Skip?", "Placement Policy", "Association", ]
         self.movieclipassociation_messages = {MovieClipAssociation.ASSOCIATION_FOUND : "Association found",
                                               MovieClipAssociation.ASSOCIATION_GUESSED : "Guessed episode",
                                               MovieClipAssociation.INVALID_FILE : "Invalid file"}
      
+    
+    def set_every_placement_policy_to(self, function):
+        placement_policy = function()
+        for index, movieclip_association in enumerate(self.movieclip_associations):
+            if movieclip_association.message != movieclip_association.INVALID_FILE:
+                model_index = self.createIndex(index, 3)
+                self.setData(model_index, placement_policy, role=Qt.EditRole)              
+    
+    
     def skip_every_red_classified(self):
         for index, movieclip_association in enumerate(self.movieclip_associations):
             if movieclip_association.message != movieclip_association.INVALID_FILE:
                 episode, score = movieclip_association.get_associated_episode_score()
                 if score >= MultipleAssociationTableModel.RED:
                     model_index = self.createIndex(index, 2)
-                    self.setData(model_index, Qt.Checked, role = Qt.CheckStateRole)
+                    self.setData(model_index, Qt.Checked, role=Qt.CheckStateRole)
     
+    def remove_every_invalid_file(self):
+        clean = []
+        for index, movieclip_association in enumerate(self.movieclip_associations):
+            if movieclip_association.message != movieclip_association.INVALID_FILE:
+                clean.append(movieclip_association)
+            else:
+                self.removeRows(index, 0)
+        self.movieclip_associations = clean
+
+    def removeRows(self, rows, count, parent=QtCore.QModelIndex()):
+        self.beginRemoveRows(parent, rows, rows+count);
+        self.endRemoveRows()
+        
     def rowCount(self, index):
         return len(self.movieclip_associations)
 
@@ -1351,13 +1395,16 @@ class MultipleAssociationTableModel(QtCore.QAbstractTableModel):
                 message_text = self.movieclipassociation_messages[movieclip_association.message]
                 return QtCore.QString(message_text)
             elif index.column() == 3:
+                return PlacementPolicy.to_string(movieclip_association.placement_policy)
+            elif index.column() == 4:
                 try:
                     return movieclip_association.episode_scores_list
                 except KeyError:
                     return QtCore.QVariant()
+
         
         if role == QtCore.Qt.ToolTipRole:
-            if index.column() == 3:
+            if index.column() == 4:
                 information = movieclip_association.episode_score_information
                 return QtCore.QString("Mean %s\nMedian: %s" % (information["mean"], information["median"]))
         
@@ -1395,7 +1442,7 @@ class MultipleAssociationTableModel(QtCore.QAbstractTableModel):
             if movieclip_association.message == movieclip_association.INVALID_FILE:
                 return  Qt.ItemIsSelectable
             return Qt.ItemIsEnabled | Qt.ItemIsUserCheckable
-        if index.column() == 3: 
+        if index.column() in (3,4): 
             return Qt.ItemIsEnabled | Qt.ItemIsEditable        
         return Qt.ItemIsEnabled  
         
@@ -1408,13 +1455,20 @@ class MultipleAssociationTableModel(QtCore.QAbstractTableModel):
             if value == Qt.Checked:
                 boolean_value = True            
             movieclip_association.skip = boolean_value 
-            self.dataChanged.emit(self.index(index.row(), 0), self.index(index.row(), 3))
+            self.dataChanged.emit(self.index(index.row(), 0), self.index(index.row(), 4))
             return True
-        
+ 
         if role == Qt.EditRole:
             if index.column() == 3:
+                movieclip_association.placement_policy = value
+                self.dataChanged.emit(self.index(index.row(), 0), self.index(index.row(), 4))
+                return True
+        return False
+        
+        if role == Qt.EditRole:
+            if index.column() == 4:
                 movieclip_association.episode_scores_list_reference = value
-                self.dataChanged.emit(self.index(index.row(), 0), self.index(index.row(), 3))
+                self.dataChanged.emit(self.index(index.row(), 0), self.index(index.row(), 4))
                 return True
         return False
                           
@@ -1433,17 +1487,33 @@ class MultipleAssociationTable(QtGui.QWizardPage):
         self.tableview = QtGui.QTableView()
         self.tableview.setShowGrid(False)
         self.tablemodel = MultipleAssociationTableModel(movieclip_associations)
-        self.tableview.setItemDelegate(ComboBoxDelegate(movieclip_associations, self.tablemodel))
+        self.tableview.setItemDelegate(ComboBoxDelegate(movieclip_associations, self.tablemodel))        
         self.tableview.horizontalHeader().setStretchLastSection(True)
         
         self.tableview.setModel(self.tablemodel)
         self.tableview.horizontalHeader().setResizeMode(QtGui.QHeaderView.ResizeToContents)
         
         vbox = QtGui.QVBoxLayout()
-        toolbar = QtGui.QToolBar()
+        self.toolbar = toolbar = QtGui.QToolBar()
         all_red_skip = QtGui.QAction("Skip every red classified movie clip", self)
         all_red_skip.triggered.connect(self.tablemodel.skip_every_red_classified)
         toolbar.addAction(all_red_skip)
+
+        all_invalid_remove = QtGui.QAction("Remove every invalid file", self)
+        all_invalid_remove.triggered.connect(self.tablemodel.remove_every_invalid_file)
+        toolbar.addAction(all_invalid_remove)
+        
+        self.placementpolicy_combobox = QtGui.QComboBox()
+        
+        for policy, index in diribeomodel.iter_attributes(PlacementPolicy):
+            self.placementpolicy_combobox.insertItem(index, PlacementPolicy.to_string(index))
+        
+        self.toolbar.addWidget(self.placementpolicy_combobox)
+        
+        all_dont_touch = QtGui.QAction("Set Placement Policy", self)
+        all_dont_touch.triggered.connect(functools.partial(self.tablemodel.set_every_placement_policy_to, self.placementpolicy_combobox.currentIndex))
+        toolbar.addAction(all_dont_touch)
+        
         vbox.addWidget(toolbar)
         vbox.addWidget(self.tableview)
         self.setLayout(vbox)        
@@ -1452,17 +1522,27 @@ class ComboBoxDelegate(QtGui.QStyledItemDelegate):
     def __init__(self, movieclip_associations, model,  parent = None):
         QtGui.QStyledItemDelegate.__init__(self, parent)
         self.movieclip_associations = movieclip_associations
-        self.selections = collections.defaultdict(lambda: int())
+        self.selections = collections.defaultdict(lambda: collections.defaultdict(lambda: int()))
     
     def paint(self, painter, option, index):
         
         movieclip_association = self.movieclip_associations[index.row()]
         
+        
         if index.column() == 3:
             try:
                 painter.fillRect(option.rect, index.model().data(index, role = QtCore.Qt.BackgroundRole))
                 if movieclip_association.message != movieclip_association.INVALID_FILE:
-                    episode, score = movieclip_association.episode_scores_list[self.selections[index.row()]]
+                    painter.drawText(option.rect, QtCore.Qt.AlignVCenter, str(movieclip_association.placement_policy))   
+                    self.selections[index.row()][index.column()] = movieclip_association.placement_policy
+            except KeyError:
+                pass
+        
+        if index.column() == 4:
+            try:
+                painter.fillRect(option.rect, index.model().data(index, role = QtCore.Qt.BackgroundRole))
+                if movieclip_association.message != movieclip_association.INVALID_FILE:
+                    episode, score = movieclip_association.episode_scores_list[self.selections[index.row()][index.column()]]
                     painter.drawText(option.rect, QtCore.Qt.AlignVCenter, episode.get_normalized_name() + " Score: " + str(score))
                 
             except KeyError:
@@ -1478,19 +1558,29 @@ class ComboBoxDelegate(QtGui.QStyledItemDelegate):
             editor = QtGui.QComboBox(parent)
             
             try:
+                for policy, index in diribeomodel.iter_attributes(PlacementPolicy):
+                    editor.insertItem(index, PlacementPolicy.to_string(index))
+                return editor
+            except (KeyError, TypeError):
+                pass
+        
+        elif index.column() == 4:
+            editor = QtGui.QComboBox(parent)
+            
+            try:
                 for index, [episode, score] in enumerate(movieclip_association.episode_scores_list):
                     editor.insertItem(index, episode.get_normalized_name() + " Score: " + str(score))
                     editor.setItemData(index, score, role = Qt.ToolTipRole)
                 return editor
-            except KeyError:
+            except (KeyError, TypeError):
                 pass
 
-    def setEditorData(self, comboBox, index):        
-        comboBox.setCurrentIndex(self.selections[index.row()])
+    def setEditorData(self, comboBox, index):     
+        comboBox.setCurrentIndex(self.selections[index.row()][index.column()])
 
     def setModelData(self, comboBox, model, index):
         value = comboBox.currentIndex()
-        self.selections[index.row()] = value 
+        self.selections[index.row()][index.column()] = value 
         comboBox.setCurrentIndex(value)
         model.setData(index, value, QtCore.Qt.EditRole)
 
@@ -1500,19 +1590,20 @@ class ComboBoxDelegate(QtGui.QStyledItemDelegate):
 class SeriesAdderWizard(QtGui.QWizard):
     selection_finished = QtCore.pyqtSignal("PyQt_PyObject")
     
-    def __init__(self, jobs, parent = None):
+    def __init__(self, jobs, parent=None):
         QtGui.QWizard.__init__(self, parent)         
         self.online_search = OnlineSearch(jobs)
+        diribeoutils.resize_to_percentage(self, SUBWINDOW_PERCENTAGE)
         self.addPage(self.online_search)
         self.accepted.connect(self.wizard_complete)
         self.setWindowTitle('Add Series')
-        diribeoutils.resize_to_percentage(self, SUBWINDOW_PERCENTAGE) 
+        self.setModal(True)
     
     def wizard_complete(self):
         self.selection_finished.emit(self.collect_all_items())
     
     def collect_all_items(self):
-        output= []
+        output = []
         for index in range(self.online_search.downloadserieslist.count()):
             output.append(self.online_search.downloadserieslist.item(index))
         return output
@@ -1534,8 +1625,10 @@ class OnlineSearch(QtGui.QWizardPage):
         self.onlinesearchbutton.setDefault(True)
         self.onlinesearchfield = QtGui.QLineEdit()        
         self.onlineserieslist = QtGui.QListWidget()
+        self.onlineserieslist.setSelectionMode(QtGui.QAbstractItemView.ExtendedSelection)
         self.downloadserieslist = QtGui.QListWidget()
-
+        self.downloadserieslist.setSelectionMode(QtGui.QAbstractItemView.ExtendedSelection)
+        
         onlinesearchgrid = QtGui.QGridLayout()
         onlinesearchgrid.addWidget(onlinesearchlabel, 1 , 0)
         onlinesearchgrid.addWidget(self.onlinesearchfield, 1, 1)     
@@ -1575,7 +1668,10 @@ class OnlineSearch(QtGui.QWizardPage):
         
     def keyPressEvent(self, event):
         if event.key() in (QtCore.Qt.Key_Return, QtCore.Qt.Key_Enter):           
-            self.search()             
+            self.search()
+            event.accept()
+            return
+        QtGui.QWizardPage.keyPressEvent(self, event)             
                   
     def search(self):      
         if len(self.onlinesearchfield.text()) > 0:  
@@ -1616,7 +1712,7 @@ class WaitingWidget(QtGui.QWidget):
         self.setLayout(hbox)
  
 class About(QtGui.QDialog):
-    def __init__(self, jobs, parent = None):
+    def __init__(self, jobs, parent=None):
         QtGui.QDialog.__init__(self, parent)
         diribeoutils.resize_to_percentage(self, 25) 
         self.setWindowTitle('About') 
@@ -1717,12 +1813,26 @@ class DebuggingSettings(QtGui.QWidget):
         QtGui.QWidget.__init__(self, parent)
         
         self.hboxlayout = QtGui.QVBoxLayout()
-        self.setLayout(self.hboxlayout)
-        
+        self.setLayout(self.hboxlayout)        
         self.debugging_settings_groupbox = QtGui.QGroupBox("Debugging")
-        self.form_layout = QtGui.QFormLayout()
-        self.debugging_settings_groupbox.setLayout(self.form_layout)
-        self.hboxlayout.addWidget(self.debugging_settings_groupbox)
+        self.vbox = QtGui.QVBoxLayout()
+        self.debugging_settings_groupbox.setLayout(self.vbox)
+        self.hboxlayout.addWidget(self.debugging_settings_groupbox)        
+        self.debug_textedit = QtGui.QTextEdit()        
+        self.vbox.addWidget(self.debug_textedit)
+        self.complete_reset_button = QtGui.QPushButton("Complete Reset")
+        self.complete_reset_button.clicked.connect(self.complete_reset)
+        self.internal_settings_folder_button = QtGui.QPushButton("Open Internal Settings Folder")
+        self.internal_settings_folder_button.clicked.connect(functools.partial(open_folder, settings.get_settings_dir()))
+        self.vbox.addWidget(self.complete_reset_button)        
+        self.vbox.addWidget(self.internal_settings_folder_button)
+        self.debug_textedit.setText("\n".join(diribeo_stream.lines))
+        
+    def complete_reset(self):
+        movieclips.reset()
+        settings.reset()
+        series_list.__init__()
+        
         
 class GeneralSettings(QtGui.QWidget):
     def __init__(self, parent = None):
@@ -1741,8 +1851,12 @@ class GeneralSettings(QtGui.QWidget):
         
         self.general_settings_groupbox.setLayout(self.form_layout)
         
-        self.copy_associated_movieclips_checkbox = QtGui.QCheckBox()
-        self.copy_associated_movieclips_checkbox.setChecked(settings.get("copy_associated_movieclips"))
+        self.placementpolicy_combobox = QtGui.QComboBox()
+        
+        for policy, index in diribeomodel.iter_attributes(PlacementPolicy):
+            self.placementpolicy_combobox.insertItem(index, PlacementPolicy.to_string(index))
+            
+        self.placementpolicy_combobox.setCurrentIndex(settings.get("placement_policy"))   
         
         self.automatic_thumbnail_creation_checkbox = QtGui.QCheckBox()
         self.automatic_thumbnail_creation_checkbox.setChecked(settings.get("automatic_thumbnail_creation"))
@@ -1761,7 +1875,7 @@ class GeneralSettings(QtGui.QWidget):
         
         self.deployment_folder_edit = DirectoryChooser(str(settings.get("deployment_folder")))
         
-        self.form_layout.addRow("Copy assoicated movieclips", self.copy_associated_movieclips_checkbox)
+        self.form_layout.addRow("Copy assoicated movieclips", self.placementpolicy_combobox)
         self.form_layout.addRow("Automatically create thumbnails", self.automatic_thumbnail_creation_checkbox)
         self.form_layout.addRow("Show all movieclips", self.show_all_movieclips_checkbox)
         self.form_layout.addRow("Normalize names", self.normalize_names_checkbox)
@@ -1895,12 +2009,12 @@ class SettingsEditor(QtGui.QDialog):
         
 
     def reset_settings(self):
-        settings.reset()
+        settings.reset()        
         self.hide()
         
     def save_settings(self):
         # Handle General Settings
-        settings["copy_associated_movieclips"] = self.general_settings.copy_associated_movieclips_checkbox.checkState()
+        settings["placement_policy"] = self.general_settings.placementpolicy_combobox.currentIndex()
         settings["automatic_thumbnail_creation"] = self.general_settings.automatic_thumbnail_creation_checkbox.checkState()
         settings["show_all_movieclips"] = self.general_settings.show_all_movieclips_checkbox.checkState()
         settings["normalize_names"] = self.general_settings.normalize_names_checkbox.checkState()
@@ -2001,7 +2115,6 @@ class MainWindow(QtGui.QMainWindow):
         help.addAction(help_contents)
         help.addAction(about)
 
-
     def toggle_view(self):
         self.setCentralWidget(self.episode_overview_widget)
 
@@ -2032,13 +2145,14 @@ class MainWindow(QtGui.QMainWindow):
         job = MovieUpdater(movie)        
         job.finished.connect(functools.partial(self.seriesinfo.load_information, movie))
         job.finished.connect(functools.partial(self.rebuild_after_update, movie))
+        job.download_error.connect(diribeomessageboxes.download_error)
+        job.download_error.connect(functools.partial(self.down))
         self.jobs.append(job)
         job.start()
     
     def load_series_info_from_episode(self, episode):
         assert isinstance(episode, Episode)
-        self.seriesinfo.load_information(episode.get_series())
-    
+        self.seriesinfo.load_information(episode.get_series())    
     
     def start_multiple_association_wizard(self, movieclip_associations):
         wizard = MultipleAssociationWizard(movieclip_associations, parent=self)
@@ -2046,16 +2160,19 @@ class MainWindow(QtGui.QMainWindow):
         wizard.exec_()
     
     def start_assign_dialog(self, movie):
-        if isinstance(movie, Episode):
-            filepath = QtGui.QFileDialog.getOpenFileName(directory = settings.get_user_dir())
-            if filepath != "":
-                mainwindow.add_movieclip_to_episode(filepath, movie)
+        if len(series_list) > 0:
+            if isinstance(movie, Episode):
+                filepath = QtGui.QFileDialog.getOpenFileName(directory = settings.get_user_dir())
+                if filepath != "":
+                    mainwindow.add_movieclip_to_episode(filepath, movie)
+            else:
+                # In some cases movie has a boolean type which causes an error later on
+                if not isinstance(movie, Series):
+                    movie = None
+                filepath_dir_list = QtGui.QFileDialog.getOpenFileNames(directory = settings.get_user_dir())
+                mainwindow.multiple_assigner(filepath_dir_list, movie)
         else:
-            # In some cases movie has a boolean type which causes an error later on
-            if not isinstance(movie, Series):
-                movie = None
-            filepath_dir_list = QtGui.QFileDialog.getOpenFileNames(directory = settings.get_user_dir())
-            mainwindow.multiple_assigner(filepath_dir_list, movie)
+            diribeomessageboxes.no_series_available()
         
     
     def start_association_wizard(self, filepath, episodes, movieclip):
@@ -2073,11 +2190,14 @@ class MainWindow(QtGui.QMainWindow):
     
     def multiple_assigner(self, filepath_dir_list, series):
         # series might be none. Treat series as a hint
-        if len(filepath_dir_list) > 0:
-            job = MultipleAssignerThread(filepath_dir_list, series, pool)
-            job.result.connect(self.start_multiple_association_wizard, Qt.QueuedConnection)
-            self.jobs.append(job)
-            job.start()
+        if len(series_list) > 0:
+            if len(filepath_dir_list) > 0:
+                job = MultipleAssignerThread(filepath_dir_list, series, pool)
+                job.result.connect(self.start_multiple_association_wizard, Qt.QueuedConnection)
+                self.jobs.append(job)
+                job.start()
+        else:
+            diribeomessageboxes.no_series_available()
         
 
     def add_movieclip_to_episode(self, filepath, movie):
@@ -2089,13 +2209,12 @@ class MainWindow(QtGui.QMainWindow):
         job = MultipleMovieClipAssociator(movieclip_associations) 
         job.load_information.connect(self.seriesinfo.load_information, Qt.QueuedConnection)
         job.already_exists.connect(diribeomessageboxes.already_exists_warning, Qt.QueuedConnection)
-        job.already_exists_in_another.connect(diribeomessageboxes.display_duplicate_warning, Qt.QueuedConnection)
+        job.already_exists_in_another.connect(diribeomessageboxes.duplicate_warning, Qt.QueuedConnection)
         job.filesystem_error.connect(diribeomessageboxes.filesystem_error_warning, Qt.QueuedConnection)
         if settings.get("automatic_thumbnail_creation"):
-            job.finished.connect(self.generate_thumbnails)
+            job.generate_thumbnails.connect(self.generate_thumbnails)
         self.jobs.append(job)
-        job.start()
-    
+        job.start()    
 
     def rebuild_after_update(self, movie):
         if isinstance(movie, Series):
@@ -2104,12 +2223,13 @@ class MainWindow(QtGui.QMainWindow):
         else:
             active_table_models[movie.get_series()].refresh_row(movie.number-1)
         
-    def delete_series(self):                
-        series = self.existing_series       
+    def delete_series(self, series=None):
+        if series is None or not isinstance(series,Series):
+            series = self.existing_series       
         
         # Make sure that you're actually deleting a series
         if series is not None:
-            # Deletes the item in the tree widget
+            # Deletes the item in the tree widget            
             self.local_search.remove_series(series)
             
             # Delete the series in the series_list
@@ -2132,8 +2252,6 @@ class MainWindow(QtGui.QMainWindow):
 
 
     def load_into_local_table(self):
-        index = self.local_search.localseriestree.selectionModel().currentIndex()
-
         selected_items = self.local_search.localseriestree.selectedItems()
         
         if len(selected_items) > 0:
@@ -2158,8 +2276,9 @@ class MainWindow(QtGui.QMainWindow):
             index = selected
         except IndexError, TypeError:  
             pass
-        finally:            
-            self.seriesinfo.load_information(self.existing_series[index.row()])
+        finally:
+            # set position_table to false, otherwise table is repositioned every time you click on a table entry            
+            self.seriesinfo.load_information(self.existing_series[index.row()], position_table=False)
                  
 
     def load_existing_series_into_table(self, series):
@@ -2169,8 +2288,6 @@ class MainWindow(QtGui.QMainWindow):
         except KeyError:
             active_table_models[series] = model = EpisodeTableModel(series)
             model.filled = True
-            #TODO
-            #self.tableview.setModel(model)
             
             
     def load_items_into_table(self, series_items):
@@ -2197,6 +2314,8 @@ class MainWindow(QtGui.QMainWindow):
                 job.update_seriesinformation.connect(self.seriesinfo.load_information, type = QtCore.Qt.QueuedConnection)
                 job.update_tableview.connect(self.tableview.setModel)
                 job.insert_into_tree.connect(self.local_search.insert_top_level_item, type = QtCore.Qt.QueuedConnection)
+                job.download_error.connect(diribeomessageboxes.download_error)
+                job.download_error.connect(functools.partial(self.delete_series,series=current_series))
                 self.jobs.append(job)
                 job.start()
                                   
@@ -2207,7 +2326,7 @@ class MainWindow(QtGui.QMainWindow):
 class AssociationWizard(QtGui.QWizard):
     selection_finished = QtCore.pyqtSignal("PyQt_PyObject")
     
-    def __init__(self, episodes, filename, parent = None):
+    def __init__(self, episodes, filename, parent=None):
         QtGui.QWizard.__init__(self, parent)
         self.episode_chooser = EpisodeChooser(episodes, filename)
         self.addPage(self.episode_chooser)
@@ -2218,7 +2337,7 @@ class AssociationWizard(QtGui.QWizard):
 
 class EpisodeChooser(QtGui.QWizardPage):    
     
-    def __init__(self, episodes_scores, filename, parent = None):
+    def __init__(self, episodes_scores, filename, parent=None):
         QtGui.QWizardPage.__init__(self, parent) 
         self.episodes_scores = episodes_scores
         self.setTitle("Episode Chooser")
@@ -2294,9 +2413,28 @@ class SeriesWidgetItem(QtGui.QListWidgetItem):
         self.downloaded_series = downloaded_series
         self.setText(self.downloaded_series.title)
         self.setToolTip(self.downloaded_series.identifier.keys()[0])
-       
-if __name__ == "__main__":
 
+
+class DiribeoStream(object):
+    def __init__(self):
+        self.lines = []
+    
+    def write(self, message):   
+        self.lines.append(message)
+    
+if __name__ == "__main__":    
+    
+    # Initalize Diribeo logging mechanism
+    diribeo_stream = DiribeoStream()
+    handler = logging.StreamHandler(diribeo_stream)
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    handler.setFormatter(formatter)
+    log.addHandler(handler)
+    #Uncomment if you also want to log to stderr
+    #log.addHandler(logging.StreamHandler())
+    
+    log.debug("Starting with GUI creation")
+    
     app = QtGui.QApplication(sys.argv)
     app.setWindowIcon(QtGui.QIcon("images/video-x-generic.png"))
     
@@ -2306,11 +2444,15 @@ if __name__ == "__main__":
     pool = multiprocessing.Pool()
     pixmap_cache = PixmapCache()
 
-    settings = diribeomodel.settings
+    settings = diribeomodel.settings     
     series_list = diribeomodel.series_list
     movieclips = diribeomodel.movieclips    
+    
+    settings.update_implementations(library.implementations)
 
+    log.debug("Building main window")
     mainwindow = MainWindow()
     mainwindow.show()
+    log.debug("Finished building main window")
     
     app.exec_()

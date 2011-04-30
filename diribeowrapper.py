@@ -3,13 +3,13 @@
 import datetime
 import tvrage.api
 
-from diribeomodel import Episode, Series, NoInternetConnectionAvailable, series_list, DownloadedSeries, settings
+from diribeomodel import Episode, Series, NoInternetConnectionAvailable, series_list, DownloadedSeries, settings, DownloadError
 
 class LibraryWrapper(object):
     def __init__(self):
         implementation_list = [IMDBWrapper(), TVRageWrapper()]
         self.implementations = dict([(implementation.identifier,implementation) for implementation in implementation_list])
-    
+        
     def get_episodes(self, identifier, implementation_identifier):
         return self.implementations[implementation_identifier].get_episodes(identifier)
         
@@ -70,12 +70,16 @@ class SourceWrapper(object):
     
     def update_series(self, series, merge_policy=None):
         raise NotImplementedError
+    
+    def get_URL(self, movie):
+        raise NotImplementedError
 
 class TVRageWrapper(SourceWrapper):
-    def __init__(self):
+    def __init__(self, activated=False):
         SourceWrapper.__init__(self)
         self.identifier = "tvrage"
-        self.image = "images/tvrage.png"        
+        self.image = "images/tvrage.png"
+        self.activated = activated        
         
     def get_episodes(self, tvrage_series):
         episode_count = self.__get_episode_count(tvrage_series.episodes)
@@ -122,16 +126,17 @@ class TVRageWrapper(SourceWrapper):
     
         
 class IMDBWrapper(SourceWrapper):
-    def __init__(self):
+    def __init__(self, activated=True):
         SourceWrapper.__init__(self)
         # Import the imdb package.
         import imdb
 
         # Create the object that will be used to access the IMDb's database.
-        self.ia  = imdb.IMDb(loggginLevel = "critical", proxy="") # by default access the web.
+        self.ia  = imdb.IMDb(loggginLevel="critical") # by default access the web.
         
         self.identifier = "imdb"
-        self.image = "images/imdb.png"        
+        self.image = "images/imdb.png"
+        self.activated = activated          
 
 
     def get_episodes(self, imdb_series):
@@ -142,8 +147,11 @@ class IMDBWrapper(SourceWrapper):
         self.ia.update(imdb_series, 'episodes')
 
         seasons = imdb_series.get('episodes')
-
-        numberofepisodes = imdb_series.get('number of episodes') - 1
+        
+        try:
+            numberofepisodes = imdb_series.get('number of episodes') - 1
+        except TypeError:
+            raise DownloadError
 
         # Import helpers form imdb to sort episodes
         from imdb import helpers
@@ -266,5 +274,8 @@ class IMDBWrapper(SourceWrapper):
         except TypeError:
             pass               
 
+    def get_URL(self, movie):
+        id = movie.identifier.values()[0]
+        return "http://www.imdb.com/title/tt"+id+"/"
 
 library = LibraryWrapper()

@@ -3,6 +3,7 @@
 import datetime
 import json
 import shutil
+import collections
 import os
 import sys
 
@@ -21,14 +22,30 @@ class MergePolicy(object):
         except KeyError:
             return "-"
 
+
+class PlacementPolicy(object):
+    MOVE, COPY, DONT_TOUCH = range(3)
+    
+    @staticmethod
+    def to_string(policy):
+        string_lookup = {PlacementPolicy.MOVE : "Move File", 
+                         PlacementPolicy.COPY : "Copy File",
+                         PlacementPolicy.DONT_TOUCH : "Don't Touch File"}
+        try:            
+            return string_lookup[policy]
+        except KeyError:
+            return "-"
+    
+
 def iter_attributes(obj):
     return ((n, getattr(obj, n)) for n in dir(obj) if (not n.startswith('_') and not n.startswith('to_string')))
 
 
 class MovieClip(object):
-    def __init__(self, filepath, identifier = None, filesize = None, checksum = None, thumbnails = None, duration = None, dimensions = None):
-        self.filepath = filepath
-                    
+    def __init__(self, filepath, old_filepath = None, identifier = None, filesize = None, checksum = None, thumbnails = None, duration = None, dimensions = None):
+        
+        self.filepath = filepath # the current file path of the movie clip 
+        self.old_filepath = old_filepath # the former file path containing the old filename                   
         self.identifier = identifier 
         self.checksum = checksum
         self.duration = duration # in seconds
@@ -88,6 +105,7 @@ class MovieClip(object):
 
 
 class NoInternetConnectionAvailable(Exception): pass
+class DownloadError(Exception): pass
 
 
 class DownloadedSeries(object):
@@ -105,6 +123,7 @@ class MovieClipAssociation(object):
         self.movieclip = None
         self.episode_scores_list = None
         self.episode_scores_list_reference = 0
+        self.placement_policy = settings.get("placement_policy")
         self.episode_score_information = {"mean" : 0, "median" : 0}
         self.message = None
 
@@ -128,7 +147,7 @@ def SeriesOrganizerDecoder(dct):
         return Series(dct["title"], identifier = dct["identifier"], plot = dct["plot"], episodes = dct["episodes"], rating = dct["rating"], director = dct["director"], genre = dct["genre"], pictures = dct['pictures'], date = dct["date"])
 
     if '__movieclip__' in dct:        
-        return MovieClip(dct['filepath'], identifier = dct['identifier'], filesize = dct['filesize'], checksum = dct['checksum'], thumbnails = dct["thumbnails"], duration = dct["duration"], dimensions = dct["dimensions"])
+        return MovieClip(dct['filepath'], old_filepath=dct['old_filepath'], identifier = dct['identifier'], filesize = dct['filesize'], checksum = dct['checksum'], thumbnails = dct["thumbnails"], duration = dct["duration"], dimensions = dct["dimensions"])
     
     if '__movieclips__' in dct:        
         return MovieClipManager(dictionary = dct['dictionary'])
@@ -155,7 +174,7 @@ class SeriesOrganizerEncoder(json.JSONEncoder):
             return { "__series__" : True, "title" : obj.title, "plot" : obj.plot, "episodes" : obj.episodes, "identifier" : obj.identifier, "pictures" : obj.pictures,  "rating" : obj.rating,  "director" : obj.director, "genre" : obj.genre, "date" : obj.date}
 
         if isinstance(obj, MovieClip):
-            return { "__movieclip__" : True, "filepath" : obj.filepath, "filesize" : obj.filesize, "checksum" : obj.checksum, "identifier" : obj.identifier, "thumbnails" : obj.thumbnails, "duration" : obj.duration, "dimensions" : obj.dimensions}        
+            return { "__movieclip__" : True, "filepath" : obj.filepath, "old_filepath" : obj.old_filepath, "filesize" : obj.filesize, "checksum" : obj.checksum, "identifier" : obj.identifier, "thumbnails" : obj.thumbnails, "duration" : obj.duration, "dimensions" : obj.dimensions}        
         
         if isinstance(obj, Settings):
             return { "__settings__" : True, "settings" : obj.settings} 
@@ -172,10 +191,15 @@ class SeriesOrganizerEncoder(json.JSONEncoder):
         return json.JSONEncoder.default(self, obj)
 
 class Settings(object):
-    def __init__(self, settings = None):
+    def __init__(self, settings=None, implementations=None):
         
-        if settings == None:
-            self.settings = {"copy_associated_movieclips" : True, 
+        if implementations is None:
+            self.implementations = []
+        else:
+            self.implementations = implementations
+        
+        if settings is None:
+            self.settings = {"placement_policy" : PlacementPolicy.COPY, 
                              "automatic_thumbnail_creation" : False,
                              "show_all_movieclips" : True,
                              "normalize_names" : True,
@@ -187,9 +211,8 @@ class Settings(object):
                              "merge_policy_episode" : MergePolicy.MORE_INFO,
                              }
         else:
-            self.settings = settings      
-
-
+            self.settings = settings        
+        
         self.valid_extensions = ("mkv", "avi", "mpgeg", "mpg", "wmv", "mp4", "mov")
 
     def __str__(self):
@@ -207,9 +230,26 @@ class Settings(object):
         except KeyError:
             pass
 
-    def get_sources(self):
-        dictionary = {"imdb" : {}, "tvrage" : {}} #TODO
-        return dict([[x, True] for x in dictionary.keys()])
+    def update_implementations(self, implementation_list):
+        self.implementations = implementation_list
+        self.settings["sources"] = self.get_sources(source_hints=self.settings["sources"])
+
+    def get_sources(self, source_hints=None):
+        output = collections.defaultdict(lambda:False)
+        if source_hints is None:
+            source_hints = []
+        try:            
+            for implementation in self.implementations:
+                if implementation in source_hints and not source_hints[implementation]:
+                    output[implementation] = False
+                else:                    
+                    if self.implementations[implementation].activated:
+                        output[implementation] = True
+                    else:
+                        output[implementation] = False
+        except KeyError:
+            pass
+        return output
     
     def get_normalized_filename(self, filename, episode):
         name, ext = os.path.splitext(filename)
@@ -233,7 +273,7 @@ class Settings(object):
             #Collision detected:            
             split = os.path.splitext(filename)            
             index = 1 
-            while(os.path.isfile(os.path.join(directory, filename))):
+            while os.path.isfile(os.path.join(directory, filename)):
                 filename = split[0] + " " + str(index) + split[1]
                 index += 1
         return filename
@@ -282,7 +322,7 @@ class Settings(object):
         return os.path.join(self.settings["deployment_folder"], episode.series[0], "Season " + str(episode.descriptor[0]), filename)
 
 
-    def move_file_to_folder_structure(self, episode, filepath, new_filename = None):
+    def move_file_to_folder_structure(self, episode, filepath, placementpolicy, new_filename=None):
         ''' This method is responsible for moving the given file, specified via filepath, to the calculated destination.
             It is also possible to define a new filename with the help of the new_filename parameter.
         '''
@@ -301,26 +341,26 @@ class Settings(object):
             os.makedirs(directory) 
         
         # Copy / Move movie clip
-        if self.settings["copy_associated_movieclips"]:                
+        if placementpolicy == PlacementPolicy.COPY:            
             shutil.copyfile(filepath, destination)
-        else:
+        elif placementpolicy == PlacementPolicy.MOVE:
             shutil.move(filepath, destination)
     
     
     def reset(self):
-        self.__init__()
+        self.__init__(implementations=self.implementations)
     
-    def save_configs(self):
+    def save_configs(self):        
         self.save_movieclips()
         self.save_series()
         self.save_settings()
     
     
     def load_series(self):
-        return self.load_file("series.json", [])    
+        return self.load_file("series.json", list)    
         
     def load_movieclips(self):
-        return self.load_file("movieclips.json", MovieClipManager())
+        return self.load_file("movieclips.json", MovieClipManager)
     
     def save_series(self):
         self.save_file("series.json", series_list)
@@ -329,11 +369,10 @@ class Settings(object):
         self.save_file("movieclips.json", movieclips)
     
     def load_settings(self):
-        return self.load_file("settings.json", Settings())
+        return self.load_file("settings.json", Settings)
     
     def save_settings(self):
-        self.save_file("settings.json", settings)
-    
+        self.save_file("settings.json", settings)    
     
     def save_file(self, filename, contents):
         with open(os.path.join(self.get_settings_dir(), filename), "w") as f:
@@ -348,10 +387,10 @@ class Settings(object):
             f.close() 
             try:
                 return json.loads(filecontents, object_hook = SeriesOrganizerDecoder, encoding = "utf-8")
-            except ValueError: 
-                return default_value
+            except ValueError:
+                return default_value()
         
-        return default_value 
+        return default_value() 
 
 class Series(object):
     def __init__(self, title, plot = None, identifier = None, episodes = None, rating = None, pictures = None, director = "", genre = "", date = ""):
@@ -579,11 +618,11 @@ class Episode(object):
 
 
 class MovieClipManager(object):
-    def __init__(self, dictionary = None):
-        if dictionary == None:
-            self.dictionary = {"imdb" : {}, "tvrage" : {}} #TODO  
-        else:
-            self.dictionary = dictionary
+    def __init__(self, dictionary=None):
+        if dictionary is None:
+            self.dictionary = collections.defaultdict(lambda:{})
+        else:            
+            self.dictionary = collections.defaultdict(lambda:{}, dictionary)
 
     def __getitem__(self, identifier):
        
@@ -593,8 +632,7 @@ class MovieClipManager(object):
         except KeyError:
             pass
             
-        return [] # Returns an empty list, to produce a empty iterator
-
+        return [] # Returns an empty list, to produce an empty iterator
     
     def get_episode_dict_with_matching_checksums(self, checksum):
         ''' This function searches for the given checksum in the internal data structures.
@@ -649,9 +687,13 @@ class MovieClipManager(object):
 
     def __iter__(self):
         return self.dictionary.iteritems()
+    
+    def reset(self):
+        self.__init__()
 
 
-dummy_settings = Settings().load_settings()
+
+dummy_settings = Settings()
 settings = dummy_settings.load_settings()
 series_list = dummy_settings.load_series()
 movieclips = dummy_settings.load_movieclips()

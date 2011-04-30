@@ -13,7 +13,7 @@ import json
 import diribeomessageboxes
 import collections
 
-from diribeomodel import settings, movieclips, series_list, MovieClip, NoInternetConnectionAvailable, MovieClipAssociation
+from diribeomodel import settings, movieclips, series_list, MovieClip, NoInternetConnectionAvailable, DownloadError, MovieClipAssociation, PlacementPolicy
 from diribeowrapper import library
 from operator import itemgetter
 from PyQt4 import QtCore
@@ -122,8 +122,7 @@ class AssignerThread(WorkerThread):
 
 class MultipleAssignerThread(WorkerThread):
     
-    result = QtCore.pyqtSignal("PyQt_PyObject")
-    
+    result = QtCore.pyqtSignal("PyQt_PyObject")    
     
     def __init__(self, filepath_dir_list, series, pool):
         WorkerThread.__init__(self)
@@ -137,8 +136,7 @@ class MultipleAssignerThread(WorkerThread):
             
         self.description = "Assigning multiple clips " + hint
     
-    def create_episode_list(self, series, filename):
-                
+    def create_episode_list(self, series, filename):                
         episode_list = []
         if self.series is None:        
             for series in series_list:
@@ -229,7 +227,7 @@ class MultipleAssignerThread(WorkerThread):
                     result = self.pool.map_async(generate_episode_score_list, episode_list)
                     episode_score_list = result.get(timeout=100)
                     
-                    episode_score_list.sort(key = itemgetter(1))
+                    episode_score_list.sort(key=itemgetter(1))
                     total_score = sum([score for episode, score in episode_score_list])
                     counter = len(episode_score_list)
                     
@@ -286,6 +284,7 @@ class MultipleMovieClipAssociator(AssignerThread):
         It emits various signals which can be used for feedback.
     '''
     finished = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject")
+    generate_thumbnails = QtCore.pyqtSignal("PyQt_PyObject", "PyQt_PyObject")
     
     def __init__(self, movieclip_associations):
         AssignerThread.__init__(self)
@@ -317,7 +316,7 @@ class MultipleMovieClipAssociator(AssignerThread):
                         checksum = self.calculate_checksum(filepath)
                         self.additional_descriptions["hash"] = ""
                         
-                    movieclip_association.movieclip = MovieClip(filepath, checksum = checksum)
+                    movieclip_association.movieclip = MovieClip(filepath, checksum=checksum)
                 movieclip_association.movieclip.identifier = episode.identifier
                 
                 if not os.path.isfile(filepath) or not settings.is_valid_file_extension(filepath):
@@ -326,6 +325,7 @@ class MultipleMovieClipAssociator(AssignerThread):
                     self.already_exists_in_another.emit()
                 else:
                     self.assign(movieclip_association)
+                    self.generate_thumbnails.emit(episode, movieclip_association.movieclip)
                     
         self.finished.emit(episode, movieclip_association.movieclip)
     
@@ -366,17 +366,22 @@ class MultipleMovieClipAssociator(AssignerThread):
                 move_to_folder = True
                 add_to_movieclips = True      
         
-        if move_to_folder:
+        
+        if move_to_folder and (movieclip_association.placement_policy != PlacementPolicy.DONT_TOUCH):
             # Check if there is already a file with the same name, normalizes file name if set to do so
             filename = settings.get_unique_filename(destination, episode)
             
             # Move the file to the actual folder
             copy_move = "Moving"
-            if settings.settings["copy_associated_movieclips"]:
+            if settings.get("placement_policy") == PlacementPolicy.COPY:
                 copy_move = "Copying"
             self.additional_descriptions["moving"] = "%s movie clip to destination" % copy_move
-            settings.move_file_to_folder_structure(episode, movieclip_association.filepath, new_filename = filename)
+            settings.move_file_to_folder_structure(episode, movieclip_association.filepath, movieclip_association.placement_policy, new_filename=filename)
             self.additional_descriptions["moving"] = ""
+            
+            
+            # Set the old file path to the current one
+            movieclip_association.movieclip.old_filepath = movieclip_association.movieclip.filepath
             
             # Update the filepath of the clip        
             movieclip_association.movieclip.filepath = os.path.join(directory, filename)
@@ -408,9 +413,7 @@ class ThumbnailGenerator(WorkerThread):
         return int(matching.group(1))*60*60 + int(matching.group(2))*60 + int(matching.group(3))
 
     def get_dimensions_from_ffprobe_output(self, text):
-        print text
         matching = re.search(r'([0-9]{3,4})x([0-9]{3,4})', text)
-        print matching.group(1), matching.group(2)
         return [matching.group(1),matching.group(2)]
 
     def run(self):
@@ -473,6 +476,8 @@ class ThumbnailGenerator(WorkerThread):
 
 
 class MovieUpdater(WorkerThread):
+    download_error = QtCore.pyqtSignal("PyQt_PyObject")
+    
     def __init__(self, movie):
         WorkerThread.__init__(self)
         self.movie = movie
@@ -480,7 +485,10 @@ class MovieUpdater(WorkerThread):
         
     def run(self):
         self.waiting.emit()
-        library.update_movie(self.movie)
+        try:
+            library.update_movie(self.movie)
+        except DownloadError:
+            self.download_error.emit(self.movie);
         self.finished.emit()
     
 
@@ -514,6 +522,7 @@ class ModelFiller(WorkerThread):
     
     # Initialize various signals.
     insert_into_tree = QtCore.pyqtSignal("PyQt_PyObject")
+    download_error = QtCore.pyqtSignal("PyQt_PyObject")
     update_tree = QtCore.pyqtSignal("PyQt_PyObject")
     update_tableview = QtCore.pyqtSignal("PyQt_PyObject")
     update_seriesinformation = QtCore.pyqtSignal("PyQt_PyObject")
@@ -531,17 +540,20 @@ class ModelFiller(WorkerThread):
         episode_counter = 0
 
         # Make the progress bar idle
-        self.insert_into_tree.emit(self.series)  
         self.waiting.emit()     
+        self.insert_into_tree.emit(self.series)  
         self.update_seriesinformation.emit(self.series)   
         library.get_more_information(self.series, self.movie, self.series.identifier.keys()[0])
         self.update_seriesinformation.emit(self.series)  
-            
-        for episode, episodenumber in self.model.generator:            
-            self.model.insert_episode(episode)            
-            episode_counter += 1
-            if episode_counter % 8 == 0:
-                self.progress.emit(episode_counter, episodenumber)        
+        
+        try:    
+            for episode, episodenumber in self.model.generator:            
+                self.model.insert_episode(episode)            
+                episode_counter += 1
+                if episode_counter % 8 == 0:
+                    self.progress.emit(episode_counter, episodenumber)        
+        except DownloadError:
+            self.download_error.emit(self.series);
         
         self.model.filled = True          
         self.finished.emit()

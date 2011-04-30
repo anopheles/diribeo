@@ -5,6 +5,14 @@ import os
 from PyQt4 import QtGui
 
 
+def no_series_available():      
+    messagebox = QtGui.QMessageBox(QtGui.QMessageBox.Information, "No series available", "")
+    messagebox.setText("You must have at least one series downloaded to start the association wizard.")
+    messagebox.setInformativeText("Make sure that you have downloaded at least one series.")
+    messagebox.setStandardButtons(QtGui.QMessageBox.Ok)
+    messagebox.exec_()
+
+
 def nothing_found_warning():      
     messagebox = QtGui.QMessageBox(QtGui.QMessageBox.Information, "Nothing was found", "")
     messagebox.setText("Nothing was found.")
@@ -41,8 +49,16 @@ def filesystem_error_warning(filepath):
     messagebox.setStandardButtons(QtGui.QMessageBox.Ok) 
     messagebox.setDetailedText(filepath)
     messagebox.exec_()
+
+def download_error():
+    messagebox = QtGui.QMessageBox(QtGui.QMessageBox.Warning, "Error while downloading series information", "")
+    messagebox.setText("There has been an error while downloading the series.")
+    messagebox.setInformativeText("In some rare circumstances the series you want to download is not available. Try to use a different source.")
+    messagebox.setStandardButtons(QtGui.QMessageBox.Ok | QtGui.QMessageBox.Cancel)
+    #messagebox.setDetailedText(filepath)
+    messagebox.exec_()
     
-def display_duplicate_warning():
+def duplicate_warning():
     messagebox = QtGui.QMessageBox(QtGui.QMessageBox.Warning, "Movie Clip already associated", "")
     messagebox.setText("The movie clip is already associated with another movie.")
     messagebox.setInformativeText("This movie clip won't be added to the selected episode.")
