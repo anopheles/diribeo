@@ -1,4 +1,0 @@
-cron:
-- description: daily version update
-  url: /tasks/updateversion_v1
-  schedule: every friday 9:00

@@ -3,12 +3,13 @@ externals & studies
 ffmpeg.exe
 imdb
 tvrage
+lxml
 .idea
 .project
 .pydevproject
 *.pyc
 
-deployment\diribeowin32\Python26
-deployment\diribeowin32\diribeo
-deployment\rsapiuploads.txt
-deployment\diribeowin32.zip
+deployment/diribeowin32/Python26
+deployment/diribeowin32/diribeo
+deployment/rsapiuploads.txt
+deployment/diribeowin32.zip
