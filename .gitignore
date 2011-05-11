@@ -3,10 +3,12 @@ externals & studies
 ffmpeg.exe
 imdb
 tvrage
-movieclips.json
-series.json
-settings.json
+.idea
 .project
 .pydevproject
-logger_output.out
 *.pyc
+
+deployment\diribeowin32\Python26
+deployment\diribeowin32\diribeo
+deployment\rsapiuploads.txt
+deployment\diribeowin32.zip
