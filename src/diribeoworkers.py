@@ -422,11 +422,11 @@ class ThumbnailGenerator(WorkerThread):
         self.number_of_thumbnails = settings.get("number_of_thumbnails")  
 
 
-    def get_duration_from_ffprobe_output(self, text):
+    def get_duration_from_ffmpeg_output(self, text):
         matching = re.search(r'([0-9][0-9]):([0-9][0-9]):([0-9][0-9]).([0-9][0-9])', text)  
         return int(matching.group(1))*60*60 + int(matching.group(2))*60 + int(matching.group(3))
 
-    def get_dimensions_from_ffprobe_output(self, text):
+    def get_dimensions_from_ffmpeg_output(self, text):
         matching = re.search(r'([0-9]{3,4})x([0-9]{3,4})', text)
         return [matching.group(1),matching.group(2)]
 
@@ -444,8 +444,8 @@ class ThumbnailGenerator(WorkerThread):
         try:       
             length_process = subprocess.Popen(length_command_args, stderr=subprocess.PIPE, stdout=subprocess.PIPE, shell=True).communicate()
             output = length_process[1]
-            duration = self.get_duration_from_ffprobe_output(output)
-            dimensions = self.get_dimensions_from_ffprobe_output(output)
+            duration = self.get_duration_from_ffmpeg_output(output)
+            dimensions = self.get_dimensions_from_ffmpeg_output(output)
             self.movieclip.duration = duration
             self.movieclip.dimensions = dimensions
         except (AttributeError, OSError) as e:

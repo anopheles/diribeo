@@ -354,7 +354,11 @@ class LocalSearch(QtGui.QFrame):
 
 
 class PixmapCache(object):
-    
+    """
+        This class simple keeps a reference to a QImage object avoiding the pixmap to be scaled repeatedly.
+        Scaling pixmaps is evil so only do it once.
+    """
+
     def __init__(self):
         self.pixmaps = {}
     
@@ -2113,7 +2117,7 @@ class MainWindow(QtGui.QMainWindow):
         file.addAction(exit)
         
         manage = menubar.addMenu('&Manage')
-        add_movieclips = QtGui.QAction(QtGui.QIcon("images/list-add.png"), 'Add &Movieclips', self) 
+        add_movieclips = QtGui.QAction(QtGui.QIcon("images/list-add.png"), 'Add &Movie Clips', self)
         add_movieclips.triggered.connect(self.start_assign_dialog)
         manage.addAction(add_movieclips)        
         add_series = QtGui.QAction(QtGui.QIcon("images/list-add.png"), 'Add &Series', self)
