@@ -62,19 +62,17 @@ class MovieClip(object):
         self.thumbnails = thumbnails
     
     def get_filename(self):
-        return os.path.basename(self.filepath)    
-    
+        return os.path.basename(self.filepath)
     
     def get_filesize(self):
+        """This function calculates the file size in bytes of the given file and returns the result"""
         try:
             return self.filesize
         except AttributeError:
-            """This function calculates the file size in bytes of the given file and returns the result"""
             assert os.path.isfile(self.filepath), self.filepath
     
             self.filesize = os.path.getsize(self.filepath)
             return self.filesize
-
     
     def get_folder(self):
         if os.path.isfile(self.filepath):
@@ -208,12 +206,12 @@ class Settings(object):
                              "number_of_thumbnails" : 8,
                              "deployment_folder" : self.get_deployment_folder(),
                              "sources" : self.get_sources(),
-                             "merge_policy_series" : MergePolicy.MORE_INFO,
-                             "merge_policy_episode" : MergePolicy.MORE_INFO,
+                             "merge_policy_series" : MergePolicy.OVERWRITE,
+                             "merge_policy_episode" : MergePolicy.OVERWRITE,
                              }
         else:
-            self.settings = settings        
-        
+            self.settings = settings
+
         self.valid_extensions = ("mkv", "avi", "mpgeg", "mpg", "wmv", "mp4", "mov")
 
     def __str__(self):
@@ -373,7 +371,7 @@ class Settings(object):
         return self.load_file("settings.json", Settings)
     
     def save_settings(self):
-        self.save_file("settings.json", settings)    
+        self.save_file("settings.json", self)
     
     def save_file(self, filename, contents):
         with open(os.path.join(self.get_settings_dir(), filename), "w") as f:
@@ -596,6 +594,7 @@ class Episode(object):
             if len(self.plot) < len(new_episode.plot):
                 self.plot = new_episode.plot
             self.rating = new_episode.rating
+            self.date = new_episode.date
         elif merge_policy == MergePolicy.OVERWRITE:
             self.title = new_episode.title
             self.descriptor = new_episode.descriptor

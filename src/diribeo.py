@@ -1927,7 +1927,10 @@ class DirectoryChooser(QtGui.QWidget):
         self.hboxlayout.setMargin(0)
     
     def assign_new_dir(self):
+        old = self.directory_text_edit.text()
         dir = QtGui.QFileDialog.getExistingDirectory(caption="Choose your new deployment folder")
+        if dir == "":
+            dir = old
         self.directory_text_edit.setText(dir)
     
     def text(self):
