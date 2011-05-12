@@ -45,7 +45,7 @@ log.setLevel(logging.DEBUG)
 
 
 def open_folder(folder):            
-    if folder is not None: 
+    if folder is not None:
         try:
             os.startfile(folder) # Unix systems do not have startfile
         except AttributeError:         
@@ -1775,7 +1775,7 @@ class About(QtGui.QDialog):
         self.update_image_label.setPixmap(QtGui.QPixmap(pixmap_location))
 
 class SourceSelectionSettings(QtGui.QWidget):
-    def __init__(self, parent = None):
+    def __init__(self, parent=None):
         QtGui.QWidget.__init__(self, parent)
         
         self.vboxlayout = QtGui.QVBoxLayout()
@@ -1806,7 +1806,7 @@ class SourceSelectionSettings(QtGui.QWidget):
         self.vboxlayout.addStretch(1)            
         
 class DebuggingSettings(QtGui.QWidget):
-    def __init__(self, parent = None):
+    def __init__(self, main_settings_window, parent=None):
         QtGui.QWidget.__init__(self, parent)
         
         self.hboxlayout = QtGui.QVBoxLayout()
@@ -1817,10 +1817,16 @@ class DebuggingSettings(QtGui.QWidget):
         self.hboxlayout.addWidget(self.debugging_settings_groupbox)        
         self.debug_textedit = QtGui.QTextEdit()        
         self.vbox.addWidget(self.debug_textedit)
+        self.main_settings_window = main_settings_window
+
         self.complete_reset_button = QtGui.QPushButton("Complete Reset")
         self.complete_reset_button.clicked.connect(self.complete_reset)
+        self.complete_reset_button.setToolTip("Resets all of the application's settings")
+
         self.internal_settings_folder_button = QtGui.QPushButton("Open Internal Settings Folder")
         self.internal_settings_folder_button.clicked.connect(functools.partial(open_folder, settings.get_settings_dir()))
+        self.internal_settings_folder_button.setToolTip("Opens the internal settings folder")
+
         self.vbox.addWidget(self.complete_reset_button)        
         self.vbox.addWidget(self.internal_settings_folder_button)
         self.debug_textedit.setText("\n".join(diribeo_stream.lines))
@@ -1829,10 +1835,11 @@ class DebuggingSettings(QtGui.QWidget):
         movieclips.reset()
         settings.reset()
         series_list.__init__()
+        self.main_settings_window.hide()
         
         
 class GeneralSettings(QtGui.QWidget):
-    def __init__(self, parent = None):
+    def __init__(self, parent=None):
         QtGui.QWidget.__init__(self, parent)
         
         self.hboxlayout = QtGui.QVBoxLayout()
@@ -1849,6 +1856,7 @@ class GeneralSettings(QtGui.QWidget):
         self.general_settings_groupbox.setLayout(self.form_layout)
         
         self.placementpolicy_combobox = QtGui.QComboBox()
+        self.placementpolicy_combobox.setToolTip("Defines how a newly added movie clip is treated.")
         
         for policy, index in diribeomodel.iter_attributes(PlacementPolicy):
             self.placementpolicy_combobox.insertItem(index, PlacementPolicy.to_string(index))
@@ -1857,20 +1865,26 @@ class GeneralSettings(QtGui.QWidget):
         
         self.automatic_thumbnail_creation_checkbox = QtGui.QCheckBox()
         self.automatic_thumbnail_creation_checkbox.setChecked(settings.get("automatic_thumbnail_creation"))
+        self.automatic_thumbnail_creation_checkbox.setToolTip("When ticked newly added movie clips will have their thumbnails extracted automatically")
         
         self.show_all_movieclips_checkbox = QtGui.QCheckBox()
         self.show_all_movieclips_checkbox.setChecked(settings.get("show_all_movieclips"))
+        self.show_all_movieclips_checkbox.setToolTip("When ticked movie clips are displayed which aren't currently present in the folder structure")
         
         self.normalize_names_checkbox = QtGui.QCheckBox()
         self.normalize_names_checkbox.setChecked(settings.get("normalize_names"))
+        self.normalize_names_checkbox.setToolTip("When ticked newly added movie clips will get renamed to a more natural representation")
         
         self.hash_movieclips_checkbox = QtGui.QCheckBox()
         self.hash_movieclips_checkbox.setChecked(settings.get("hash_movieclips"))
+        self.hash_movieclips_checkbox.setToolTip("When ticked newly added movie clips are associated with an unique hash value. It is recommended that you leave this unticked")
         
         
         self.number_of_thumbnails_edit = QtGui.QLineEdit(str(settings.get("number_of_thumbnails")))
+        self.number_of_thumbnails_edit.setToolTip("Defines the number of thumbnails generated")
         
         self.deployment_folder_edit = DirectoryChooser(str(settings.get("deployment_folder")))
+        self.deployment_folder_edit.setToolTip("Defines the directory where newly added movie clips are copied or moved to")
         
         self.form_layout.addRow("Copy assoicated movieclips", self.placementpolicy_combobox)
         self.form_layout.addRow("Automatically create thumbnails", self.automatic_thumbnail_creation_checkbox)
@@ -1886,7 +1900,9 @@ class GeneralSettings(QtGui.QWidget):
         
                
         self.series_merge_policy = QtGui.QComboBox()
+        self.series_merge_policy.setToolTip("Defines in what way series are updated")
         self.episode_merge_policy = QtGui.QComboBox()
+        self.episode_merge_policy.setToolTip("Defines in which way episodes are updated")
         
         for policy, index in diribeomodel.iter_attributes(MergePolicy):
             self.series_merge_policy.insertItem(index, MergePolicy.to_string(index))
@@ -1942,7 +1958,7 @@ class SettingsEditor(QtGui.QDialog):
         self.stacked_widget.addWidget(self.sources_settings)
        
         # Create Appearance Settings Groupbox
-        self.debugging_settings = DebuggingSettings()
+        self.debugging_settings = DebuggingSettings(self)
         self.stacked_widget.addWidget(self.debugging_settings)       
        
         
@@ -2150,7 +2166,6 @@ class MainWindow(QtGui.QMainWindow):
         job.finished.connect(functools.partial(self.seriesinfo.load_information, movie))
         job.finished.connect(functools.partial(self.rebuild_after_update, movie))
         job.download_error.connect(diribeomessageboxes.download_error)
-        job.download_error.connect(functools.partial(self.down))
         self.jobs.append(job)
         job.start()
     
@@ -2218,7 +2233,7 @@ class MainWindow(QtGui.QMainWindow):
         if settings.get("automatic_thumbnail_creation"):
             job.generate_thumbnails.connect(self.generate_thumbnails)
         self.jobs.append(job)
-        job.start()    
+        job.start()
 
     def rebuild_after_update(self, movie):
         if isinstance(movie, Series):
