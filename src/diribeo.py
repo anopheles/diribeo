@@ -25,7 +25,7 @@ import diribeoutils
 
 
 from diribeomodel import Series, Episode, Season, MovieClipAssociation, MergePolicy, PlacementPolicy
-from diribeoworkers import SeriesSearchWorker, ModelFiller, MultipleMovieClipAssociator, ThumbnailGenerator, MultipleAssignerThread, MovieUpdater, VersionChecker, HOMEPAGE
+from diribeoworkers import SeriesSearchWorker, ModelFiller, MultipleMovieClipAssociator, ThumbnailGenerator, ThumbnailGatherer, MultipleAssignerThread, MovieUpdater, VersionChecker, HOMEPAGE_URL
 
 
 from PyQt4 import QtGui
@@ -1723,7 +1723,7 @@ class About(QtGui.QDialog):
         self.diribeo_button = QtGui.QPushButton()
         self.diribeo_button.setIcon(diribeo_icon)
         self.diribeo_button.setIconSize(QtCore.QSize(200,200))
-        self.diribeo_button.clicked.connect(functools.partial(QtGui.QDesktopServices.openUrl, QtCore.QUrl(HOMEPAGE)))
+        self.diribeo_button.clicked.connect(functools.partial(QtGui.QDesktopServices.openUrl, QtCore.QUrl(HOMEPAGE_URL)))
         
         self.vboxlayout.addWidget(self.diribeo_button)
         self.vboxlayout.addWidget(QtGui.QLabel("Diribeo is an open source application. To get more information about it check out http://www.diribeo.de"))
@@ -2076,6 +2076,8 @@ class MainWindow(QtGui.QMainWindow):
         
         self.load_all_series_into_their_table()
 
+        self.gather_thumbnails()
+
     def load_all_series_into_their_table(self):
         for series in series_list:
             self.load_existing_series_into_table(series) 
@@ -2106,7 +2108,7 @@ class MainWindow(QtGui.QMainWindow):
         
         help = menubar.addMenu('&Help')
         help_contents = QtGui.QAction(QtGui.QIcon("images/help-browser.png"), 'Help Contents', self)
-        help_contents.triggered.connect(functools.partial(QtGui.QDesktopServices.openUrl, QtCore.QUrl(HOMEPAGE+"/faq")))
+        help_contents.triggered.connect(functools.partial(QtGui.QDesktopServices.openUrl, QtCore.QUrl(HOMEPAGE_URL+"/faq")))
         about = QtGui.QAction(QtGui.QIcon(), 'About', self)
         about.triggered.connect(self.start_about)
         help.addAction(help_contents)
@@ -2138,6 +2140,11 @@ class MainWindow(QtGui.QMainWindow):
         wizard.show()
         wizard.exec_()
      
+    def gather_thumbnails(self):
+        job = ThumbnailGatherer(pixmap_cache)
+        self.jobs.append(job)
+        job.start()
+
     def update_movie(self, movie):
         job = MovieUpdater(movie)        
         job.finished.connect(functools.partial(self.seriesinfo.load_information, movie))

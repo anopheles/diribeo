@@ -18,7 +18,7 @@ from diribeowrapper import library
 from operator import itemgetter
 from PyQt4 import QtCore
 
-HOMEPAGE = "http://www.diribeo.de"
+HOMEPAGE_URL = "http://www.diribeo.de"
 
 class WorkerThread(QtCore.QThread):
     
@@ -261,7 +261,21 @@ def generate_episode_score_list(episode):
     score = min([dameraulevenshtein(title, episode.filename) for title in episode.get_alternative_titles() + [episode.get_normalized_name()]])
     return [episode, score]
 
-    
+
+class ThumbnailGatherer(WorkerThread):
+
+    def __init__(self, pixmap_cache):
+        WorkerThread.__init__(self)
+        self.pixmap_cache = pixmap_cache
+        self.description = "Loading Pixmaps"
+
+    def run(self):
+        for movieclip in movieclips:
+            for filepath, timecode in movieclip.thumbnails:
+                    self.pixmap_cache.get_pixmap(filepath)
+        self.finished.emit()
+
+
 class VersionChecker(WorkerThread):
     finished = QtCore.pyqtSignal("PyQt_PyObject")
     
@@ -273,7 +287,7 @@ class VersionChecker(WorkerThread):
     def run(self):
         self.waiting.emit()
         try:
-            content = urllib2.urlopen(HOMEPAGE+"/tasks/currentversion_v1").read()
+            content = urllib2.urlopen(HOMEPAGE_URL+"/tasks/currentversion_v1").read()
             version = tuple(json.loads(content)["version"])
             self.finished.emit(version)
         except urllib2.URLError:

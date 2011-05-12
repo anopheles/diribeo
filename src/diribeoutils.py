@@ -1,7 +1,12 @@
 # -*- coding: utf-8 -*-
 
+
+import subprocess
+import errno
+
 from PyQt4 import QtGui, QtCore
 from PyQt4.QtCore import Qt
+
 
 
 
@@ -88,7 +93,7 @@ def get_gradient_background(index, saturation = 0.25):
     return QtGui.QBrush(gradient)
 
 
-def get_gradient(backgroundcolor, saturation = 0.25):
+def get_gradient(backgroundcolor):
     gradient = QtGui.QLinearGradient(0, 0, 0, 100)
     gradient.setCoordinateMode(QtGui.QLinearGradient.ObjectBoundingMode)
     gradient.setColorAt(0.0, backgroundcolor.lighter(150))
@@ -103,3 +108,14 @@ def get_complementary_color(qtcolor):
 
 def get_color_shade(index, number_of_colors, saturation = 0.25):      
     return [QtGui.QColor.fromHsvF(colornumber/float(number_of_colors), 1, 0.9, saturation) for colornumber in range(number_of_colors)][index % number_of_colors]
+
+
+def programme_available(programme_name):
+    try:
+        subprocess.call(programme_name)
+        return True
+    except OSError as error:
+        if error.errno == errno.ENOENT:
+            return False
+        else:
+            raise

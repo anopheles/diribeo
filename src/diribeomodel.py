@@ -10,6 +10,10 @@ import sys
 from PyQt4 import QtCore
 
 
+def iter_attributes(obj):
+    return ((n, getattr(obj, n)) for n in dir(obj) if (not n.startswith('_') and not n.startswith('to_string')))
+
+
 class MergePolicy(object):
     OVERWRITE, MORE_INFO = range(2)
     
@@ -36,9 +40,6 @@ class PlacementPolicy(object):
         except KeyError:
             return "-"
     
-
-def iter_attributes(obj):
-    return ((n, getattr(obj, n)) for n in dir(obj) if (not n.startswith('_') and not n.startswith('to_string')))
 
 
 class MovieClip(object):
@@ -86,7 +87,7 @@ class MovieClip(object):
             os.remove(self.filepath)    
     
     def delete_thumbnails(self):
-        ''' Delete the generated thumbnails '''                
+        ''' Delete the generated thumbnails '''
         for filepath, timecode in self.thumbnails:
             try:
                 os.remove(filepath)
@@ -686,8 +687,13 @@ class MovieClipManager(object):
             self.dictionary[implementation][movieclip.identifier[implementation]].remove(movieclip)
 
     def __iter__(self):
-        return self.dictionary.iteritems()
-    
+        flattened_movieclips = []
+        for implementation in self.dictionary:
+            for identifier in self.dictionary[implementation]:
+                for movieclip in self.dictionary[implementation][identifier]:
+                    flattened_movieclips.append(movieclip)
+        return flattened_movieclips.__iter__()
+
     def reset(self):
         self.__init__()
 
