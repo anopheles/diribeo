@@ -3,6 +3,7 @@ externals & studies
 ffmpeg.exe
 imdb
 tvrage
+pyffmpegwrapper
 lxml
 .idea
 .project
