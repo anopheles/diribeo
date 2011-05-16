@@ -32,12 +32,10 @@ from PyQt4 import QtGui
 from PyQt4 import QtCore
 from PyQt4.QtCore import Qt
 
-
 MAINWINDOW_PERCENTAGE = 75
 SUBWINDOW_PERCENTAGE = 50 
 THUMBNAIL_WIDTH = 150
-SOURCE_IMAGE_HEIGHT = 75 
-
+SOURCE_IMAGE_HEIGHT = 75
 
 # Initialize logger & set logging level
 log = logging.getLogger("Diribeo Logger")
@@ -366,11 +364,12 @@ class PixmapCache(object):
         try:
             return self.pixmaps[filepath]
         except KeyError:
-            qimage = QtGui.QImage(filepath)
-            pixmap = QtGui.QPixmap.fromImage(qimage)
-            pixmap = pixmap.scaledToWidth(THUMBNAIL_WIDTH)
-            self.pixmaps[filepath] = pixmap
-            return pixmap
+            if os.path.exists(filepath):
+                qimage = QtGui.QImage(filepath)
+                pixmap = QtGui.QPixmap.fromImage(qimage)
+                pixmap = pixmap.scaledToWidth(THUMBNAIL_WIDTH)
+                self.pixmaps[filepath] = pixmap
+                return pixmap
 
 class MoviePicture(QtGui.QWidget):    
     

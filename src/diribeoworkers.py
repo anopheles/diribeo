@@ -1,14 +1,11 @@
 # -*- coding: utf-8 -*-
 
 import hashlib
-import shlex
 import glob
 import uuid
 import urllib2
 import functools
 import os
-import subprocess
-import re
 import json
 import diribeomessageboxes
 import collections
@@ -16,6 +13,10 @@ import collections
 from diribeomodel import settings, movieclips, series_list, MovieClip, NoInternetConnectionAvailable, DownloadError, MovieClipAssociation, PlacementPolicy
 from diribeowrapper import library
 from operator import itemgetter
+from pyffmpegwrapper.video_inspector import VideoInspector
+from pyffmpegwrapper.video_encoder import VideoEncoder
+from pyffmpegwrapper.errors import FFMpegException
+
 from PyQt4 import QtCore
 
 HOMEPAGE_URL = "http://www.diribeo.de"
@@ -414,7 +415,7 @@ class ThumbnailGenerator(WorkerThread):
     def __init__(self, movieclip, episode):
         WorkerThread.__init__(self)
         self.filepath = os.path.normpath(movieclip.filepath)
-        self.movieclip = movieclip 
+        self.movieclip = movieclip
         self.episode = episode
         self.image_list = []  
         self.timecode = []  
@@ -422,33 +423,18 @@ class ThumbnailGenerator(WorkerThread):
         self.number_of_thumbnails = settings.get("number_of_thumbnails")  
 
 
-    def get_duration_from_ffmpeg_output(self, text):
-        matching = re.search(r'([0-9][0-9]):([0-9][0-9]):([0-9][0-9]).([0-9][0-9])', text)  
-        return int(matching.group(1))*60*60 + int(matching.group(2))*60 + int(matching.group(3))
-
-    def get_dimensions_from_ffmpeg_output(self, text):
-        matching = re.search(r'([0-9]{3,4})x([0-9]{3,4})', text)
-        return [matching.group(1),matching.group(2)]
-
     def run(self):
         self.waiting.emit()
         
-        
         # Delete the already generated thumbnails of the movieclip
         self.movieclip.delete_thumbnails()
-        
-        
-        # Get length of video clip
-        length_command = 'ffmpeg -i "' + self.filepath + '"'
-        length_command_args = shlex.split(str(length_command))
-        try:       
-            length_process = subprocess.Popen(length_command_args, stderr=subprocess.PIPE, stdout=subprocess.PIPE, shell=True).communicate()
-            output = length_process[1]
-            duration = self.get_duration_from_ffmpeg_output(output)
-            dimensions = self.get_dimensions_from_ffmpeg_output(output)
+
+        try:
+            video = VideoInspector(self.filepath)
+            duration = video.duration()
             self.movieclip.duration = duration
-            self.movieclip.dimensions = dimensions
-        except (AttributeError, OSError) as e:
+            self.movieclip.dimensions = video.dimension()
+        except (AttributeError, OSError, FFMpegException) as error:
             self.error_in_thumbnail_creation.emit()
             self.finished.emit()
             return
@@ -461,15 +447,16 @@ class ThumbnailGenerator(WorkerThread):
         interval = duration/self.number_of_thumbnails
         unique_identifier = str(uuid.uuid4())
         self.prefix = os.path.join(settings.get_thumbnail_folder(), unique_identifier)
+        video_encoder = VideoEncoder(self.filepath)
         
         for index in range(1, self.number_of_thumbnails+1):
             time = index*interval
             self.timecode.append(time)
-            destination = os.path.join(settings.get_thumbnail_folder(), unique_identifier + "-" + "%03d" % index + ".png") 
-            command = 'ffmpeg -ss ' + str(time) + ' -i "'+ self.filepath + '" -vframes 1 -vcodec png -f image2 "' + destination + '"'           
-            args = shlex.split(str(command)) # does not support unicode input
-            proc = subprocess.Popen(args, stdout=subprocess.PIPE, shell=True)
-            proc.wait()
+            destination = os.path.join(settings.get_thumbnail_folder(), unique_identifier + "-%03d" % index + ".png")
+            video_encoder.execute(
+                '%(ffmpeg_bin)s -ss '+ str(time) +' -y -i "%(input_file)s" -vframes 1 -vcodec png -f image2 "%(output_file)s"',
+                destination,
+            )
             self.progress.emit(index, self.number_of_thumbnails)  
                   
         self.collect_images()
@@ -485,7 +472,8 @@ class ThumbnailGenerator(WorkerThread):
     def collect_images(self):
         filelist = glob.glob(self.prefix + "*.png")
         for file in filelist:
-            self.image_list.append(file)
+            if os.path.exists(file):
+                self.image_list.append(file)
         
 
 
@@ -502,7 +490,7 @@ class MovieUpdater(WorkerThread):
         try:
             library.update_movie(self.movie)
         except DownloadError:
-            self.download_error.emit(self.movie);
+            self.download_error.emit(self.movie)
         self.finished.emit()
     
 

@@ -149,5 +149,5 @@ if __name__ == "__main__":
     print "Finished creating archieve"
 
     print "Uploading File"
-    upload(HF, credentials=credentials)
+    upload(RS, credentials=credentials)
     print "Finished uploading File"
