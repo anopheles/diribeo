@@ -35,4 +35,4 @@ The design of this site is an adaption of
 
 
 
-%rebase main version=version
+%rebase main single_download=single_download

@@ -13,24 +13,27 @@
 	</section>
 	
 	<nav>
-    <ul>  
-		<li><a href="overview">Overview</a></li>
-		<li><a href="tutorial">Tutorial</a></li>
-		<li><a href="contribute">Contribute</a></li>
-		<li><a href="faq">FAQ</a></li>
-		<li><a href="contact">Contact</a></li>
-    </ul> 
+        <ul>
+            <li><a href="overview">Overview</a></li>
+            <li><a href="downloads">Downloads</a></li>
+            <li><a href="tutorial">Tutorial</a></li>
+            <li><a href="contribute">Contribute</a></li>
+            <li><a href="faq">FAQ</a></li>
+            <li><a href="contact">Contact</a></li>
+        </ul>
 	</nav>
 
+    % if single_download is not None:
 	<section id="intro"> 
 		<header> 
-			<h2>Diribeo</h2> 
+			<h2>Diribeo</h2>
 			<p>Diribeo is a simple but powerful utility for organizing your series collection.</p>
 			<br>
-		<a href="http://rapidshare.com/files/431528130/diribeowin32.zip" class="button green">Download Version {{version}} win32</a>
+		<a href={{single_download["url"]}} class="button green">Download Version {{single_download["version"]}} win32</a>
 		</header> 
-		<img src="/images/intro_flower.png" alt="intro" /> 
-	</section> 
+		<img src="/images/intro_flower.png" alt="intro" />
+	</section>
+    % end
 	
 	<section>
 		<article class="blogPost">  

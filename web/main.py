@@ -1,48 +1,40 @@
 import bottle
 
-#bottle.debug(True)
+bottle.debug(True)
 
-import currentversion
+from bottle import route, template, AppEngineServer
+from downloads import get_stored_downloads, get_single_download
 
-from bottle import route, view, template, AppEngineServer
-from google.appengine.ext.appstats.recording import appstats_wsgi_middleware
+single_download = get_single_download()
 
-from google.appengine.ext.webapp import util
-
-import simplejson as json 
-
-# Taken from main diribeo app
-def version_to_string(version):
-	version = json.loads(version)["version"]
-	return ".".join([str(x) for x in version])
-
-version = currentversion.return_version()
-edited_version = version_to_string(version)
-	
 @route("/tasks/currentversion_v1")
 def currentversion():
-	return template("currentversion_v1", version = version)
+	return template("currentversion_v1", version=single_download["version"])
+
+@route("/downloads")
+def downloads():
+	return template("downloads", single_download=single_download, downloads=get_stored_downloads())
 
 @route("/contribute")
 def contribute():
-	return template("contribute", version = edited_version)
+	return template("contribute", single_download=single_download)
 
 @route("/tutorial")
 def tutorial():
-	return template("tutorial", version = edited_version)
+	return template("tutorial", single_download=single_download)
 
 @route("/contact")
 def contact():
-	return template("contact", version = edited_version)
+	return template("contact", single_download=single_download)
 
 @route("/faq")
 def faq():
-	return template("faq", version = edited_version)
+	return template("faq", single_download=single_download)
 
 @route("/:overview")
 @route("/")		
 def default(overview=""):
-	return template("overview", version = edited_version)
+	return template("overview", single_download=single_download)
 
 
 bottle.run(server=AppEngineServer)

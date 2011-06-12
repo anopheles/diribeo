@@ -16,21 +16,16 @@ from __future__ import division
 import shutil
 import zipfile
 import os
-import subprocess
-import shlex
+import urllib2
 import sys
 
-from ftplib import FTP
-from functools import partial
+sys.path.append('../web')
+from pyfilehoster import HotFileAPI, RapidShareAPI
 
 # Declare some hosting constants, these are used ase identifiers
 HF = "hotfile"
 RS = "rapidshare"
 
-# Defines the block size of the chucks being uploaded
-UPLOAD_BLOCKSIZE = 8192 * 2 ** 2
-
-zip_name = "diribeowin32.zip"
 assemble_folder = "diribeowin32"
 
 def makeArchive(fileList, archive):
@@ -90,51 +85,19 @@ def ignore_dir(current_dir, sub_files):
                     ".pydevproject", "logger_output.out", "web"]).union(nogoes)
     return nogoes
 
-
-class Counter():
-    def __init__(self):
-        self.value = 1
-
-    def increment(self):
-        self.value += 1
-
-
-def upload_feedback(hoster, counter, uploaded_date):
-    file_size = os.path.getsize(zip_name)
-    counter.increment()
-    upload_progress = (counter.value * UPLOAD_BLOCKSIZE) / file_size
-    print 'Uploading to: %s %.2f%%' % (hoster, upload_progress * 100)
-
-
-def upload(*mode, **kwargs):
-    try:
-        credentials = kwargs['credentials']
-    except KeyError:
-        credentials = None
-
-    if credentials is not None:
-        username, password = credentials
-        
-        if RS in mode:
-            print "Uploading to Rapidshare"
-            args = shlex.split("perl rsapiresume.pl %s %s %s 1 2" % (zip_name, username, password))
-            subprocess.Popen(args, shell=True).communicate()
-            print "Finished Uploading to Rapidshare"
-
-        if HF in mode:
-            print "Uploading to Hotfile"
-            ftp = FTP('ftp.hotfile.com')
-            ftp.login(user="schleifer", passwd=password)
-            ftp.storbinary('STOR diribeo/' + zip_name, open(zip_name, 'rb'), blocksize=UPLOAD_BLOCKSIZE,
-                           callback=partial(upload_feedback, HF, Counter()))
-            ftp.quit()
-            print "Finished Uploading to Hofile"
+def get_diribeo_version():
+    sys.path.append('../src')
+    import diribeo
+    return ".".join(str(x) for x in diribeo.__version__)
 
 if __name__ == "__main__":
     try:
         credentials = sys.argv[1:3]
     except ValueError:
         print "No credentials specified"
+
+    zip_name = "diribeowin32_%s.zip" % get_diribeo_version()
+    print zip_name, credentials
 
     assemble_folder_path = os.path.join(assemble_folder, "diribeo")
     if os.path.isdir(assemble_folder_path):
@@ -148,6 +111,13 @@ if __name__ == "__main__":
     makeArchive(dirEntries(assemble_folder, True), zip_name)
     print "Finished creating archieve"
 
-    print "Uploading File"
-    upload(RS, credentials=credentials)
-    print "Finished uploading File"
+    print "Uploading"
+    abs_zip_path = os.path.abspath(zip_name)
+    rsapi = RapidShareAPI(credentials)
+    rs_fileid = rsapi.upload_file(abs_zip_path)
+    rsapi.set_direct_download(rs_fileid)
+
+    hfapi = HotFileAPI(credentials)
+    hf_fileid = hfapi.upload_file(abs_zip_path, folderid="1701142", hashid="2e37c99", path="diribeo", overwrite=True)
+    hfapi.set_direct_download(hf_fileid)
+    print "Finished Uploading"

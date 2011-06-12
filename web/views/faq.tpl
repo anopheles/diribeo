@@ -16,7 +16,7 @@ Nothing. It is completely free.
 
 
 <li>Why can't I generate thumbnails for my favourite movie clips?<br>
-You must have FFmpeg installed in order to generate thumbnails. If you're a Windows user you must download the <a href="http://ffmpeg.arrozcru.org/autobuilds/">binaries</a> and manually place the <i>ffmpeg.exe</i> in your Diribeo folder. Note that some movie clips can't be decoded with FFmpeg.
+You must have FFmpeg installed in order to generate thumbnails. If you're a Windows user you must download the <a href="http://ffmpeg.zeranoe.com/builds/">binaries</a> and manually place the <i>ffmpeg.exe</i> in your Diribeo folder. Note that some movie clips can't be decoded with FFmpeg.
 </li>
 
 <br>
@@ -35,4 +35,4 @@ To submit your bug report, feature request or bug fix/new feature patch go the <
 
 </ul>
 
-%rebase main version=version
+%rebase main single_download=single_download

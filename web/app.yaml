@@ -18,8 +18,8 @@ handlers:
 - url: /.views
   static_dir: .views
 
-- url: /tasks/updateversion_v1
-  script: updateversion.py
+- url: /tasks/updatedownloads_v1
+  script: downloads.py
   login: admin
 
 - url: /.*

@@ -11,4 +11,4 @@ Since Diribeo is in an early development stage and thus alot of things change, a
 	<br>
 	<img width="600" src="/images/concept.png">
 
-%rebase main version=version
+%rebase main single_download=single_download

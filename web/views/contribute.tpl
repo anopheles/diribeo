@@ -14,14 +14,15 @@ Getting started:
 <br>
 If you want to compile your own version of Diribeo you must have following external packages installed:
 <ul>
-	<li><a href="http://imdbpy.sourceforge.net/">IMDbPY</a>
-		<ul><li><a href="http://codespeak.net/lxml/">lxml</a></ul>
-	<li><a href="http://github.com/anopheles/python-tvrage">python-tvrage</a>
-	<li><a href="http://www.riverbankcomputing.co.uk/software/pyqt/intro">PyQt 4.7</a>
+	<li><a href="http://imdbpy.sourceforge.net/">IMDbPY</a></li>
+		<ul><li><a href="http://codespeak.net/lxml/">lxml</a></li></ul>
+	<li><a href="http://github.com/anopheles/python-tvrage">python-tvrage</a></li>
+    <li><a href="https://github.com/anopheles/pyffmpegwrapper">pyffmpegwrapper</a></li>
+	<li><a href="http://www.riverbankcomputing.co.uk/software/pyqt/intro">PyQt 4.7</a></li>
 </ul>
 <br>
 
-If you only want to work on the user interface only the PyQt package is required.
+If you only want to work on the user interface only the PyQt package is required. Note that if you're too lazy to checkout all of these modules manually, simply download the windows version of diribeo. It has all dependencies preinstalled.
 
 <br><br>
 
@@ -37,18 +38,15 @@ To download the most recent version of Diribeo you must have git installed on yo
 
 <h3>Roadmap</h3>
 <ul>
-	<li>Internationalization
-	<li>Share definitions with other users
-	<li>Statistics about how many episode you have already seen
-	
+	<li>Internationalization</li>
 </ul>
 <br>
 
 <h3>Externals</h3>
 <ul>
-	<li><a href="http://github.com/anopheles/diribeo">GitHub Repository</a>
-	<li><a href="http://github.com/anopheles/diribeo/issues">Issue Tracker</a>
+	<li><a href="http://github.com/anopheles/diribeo">GitHub Repository</a></li>
+	<li><a href="http://github.com/anopheles/diribeo/issues">Issue Tracker</a></li>
 </ul>
 </div>
 
-%rebase main version=version
+%rebase main single_download=single_download

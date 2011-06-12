@@ -18,4 +18,4 @@
 
 
 
-%rebase main version=version
+%rebase main single_download=single_download
