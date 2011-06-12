@@ -17,6 +17,8 @@ import shutil
 import zipfile
 import os
 import urllib2
+import urllib
+import urlparse
 import sys
 
 sys.path.append('../web')
@@ -79,9 +81,9 @@ def delete_everything(top):
 
 
 def ignore_dir(current_dir, sub_files):
-    nogoes = shutil.ignore_patterns("*.pyc")(current_dir, sub_files)
+    nogoes = shutil.ignore_patterns("*.pyc", ".git")(current_dir, sub_files)
     if current_dir == "../../diribeo":
-        return set(["ffmpeg.exe", ".git", ".settings", "externals & studies", "tests", ".gitignore", ".project",
+        return set(["ffmpeg.exe", ".settings", "externals & studies", "tests", ".gitignore", ".project",
                     ".pydevproject", "logger_output.out", "web"]).union(nogoes)
     return nogoes
 
@@ -93,11 +95,14 @@ def get_diribeo_version():
 if __name__ == "__main__":
     try:
         credentials = sys.argv[1:3]
+        username, password = credentials
     except ValueError:
         print "No credentials specified"
 
+
     zip_name = "diribeowin32_%s.zip" % get_diribeo_version()
     print zip_name, credentials
+
 
     assemble_folder_path = os.path.join(assemble_folder, "diribeo")
     if os.path.isdir(assemble_folder_path):
@@ -118,6 +123,16 @@ if __name__ == "__main__":
     rsapi.set_direct_download(rs_fileid)
 
     hfapi = HotFileAPI(credentials)
-    hf_fileid = hfapi.upload_file(abs_zip_path, folderid="1701142", hashid="2e37c99", path="diribeo", overwrite=True)
+    hf_fileid = hfapi.upload_file(abs_zip_path, folderid="1701142", hashid="2e37c99", path="diribeo")
     hfapi.set_direct_download(hf_fileid)
     print "Finished Uploading"
+
+    print "Notify web server"
+    query = urllib.urlencode({"username": username,
+                              "password": password})
+    base_url = ["http", "diribeo2010.appspot.com", "/tasks/updatedownloads_v1", "", query, ""]
+    result = urllib2.urlopen(urlparse.urlunparse(base_url))
+    for line in result:
+        if "OK" in line:
+            print "Notification was successful"
+
