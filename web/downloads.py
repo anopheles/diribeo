@@ -41,7 +41,7 @@ def string_to_version(version_string):
             cleaned_version.append(int(part))
         except ValueError:
             cleaned_version.append(part)
-    return cleaned_version
+    return {"version":cleaned_version}
 
 def store_newest_downloads(update_credentials):
     download_links = dict()
