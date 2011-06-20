@@ -10,7 +10,7 @@
         <th>URL</th>
         %for properties in downloads["Rapidshare"]:
             <tr>
-                 <td>Diribeo  {{properties["version"]}}</td>
+                 <td>Diribeo  {{properties["version_string"]}}</td>
                  <td>{{properties["date"]}}</td>
                  <td>{{"%0.5s" % (float(properties["size"])/1024**2)}} MB</td>
                  <td><a href="{{properties["url"]}}">{{properties["url"]}}</a></td>
@@ -27,7 +27,7 @@
         <th>URL</th>
         %for properties in downloads["Hotfile"]:
             <tr>
-                 <td>Diribeo {{properties["version"]}}</td>
+                 <td>Diribeo {{properties["version_string"]}}</td>
                  <td><a href="{{properties["url"]}}">{{properties["url"]}}</a></td>
             </tr>
         %end

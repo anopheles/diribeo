@@ -1,4 +1,5 @@
 import bottle
+import simplejson as json
 
 bottle.debug(True)
 
@@ -9,7 +10,7 @@ single_download = get_single_download()
 
 @route("/tasks/currentversion_v1")
 def currentversion():
-    return template("currentversion_v1", version=single_download["version"])
+    return template("currentversion_v1", version=json.dumps(single_download["version"]))
 
 
 @route("/tasks/updatedownloads_v1")

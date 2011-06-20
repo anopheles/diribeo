@@ -289,7 +289,7 @@ class VersionChecker(WorkerThread):
         self.waiting.emit()
         try:
             content = urllib2.urlopen(HOMEPAGE_URL+"/tasks/currentversion_v1").read()
-            version = tuple(json.loads(content)["version"])
+            version = tuple(json.loads(content))
             self.finished.emit(version)
         except urllib2.URLError:
             self.finished.emit("ERROR")

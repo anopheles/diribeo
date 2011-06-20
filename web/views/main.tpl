@@ -29,7 +29,7 @@
 			<h2>Diribeo</h2>
 			<p>Diribeo is a simple but powerful utility for organizing your series collection.</p>
 			<br>
-		<a href={{single_download["url"]}} class="button green">Download Version {{single_download["version"]}} win32</a>
+		<a href={{single_download["url"]}} class="button green">Download Version {{single_download["version_string"]}} win32</a>
 		</header> 
 		<img src="/images/intro_flower.png" alt="intro" />
 	</section>

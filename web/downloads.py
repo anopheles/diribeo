@@ -32,6 +32,17 @@ def get_single_download():
     except TypeError:
         pass
 
+
+def string_to_version(version_string):
+    version = version_string.split(".")
+    cleaned_version = []
+    for part in version:
+        try:
+            cleaned_version.append(int(part))
+        except ValueError:
+            cleaned_version.append(part)
+    return cleaned_version
+
 def store_newest_downloads(update_credentials):
     download_links = dict()
     credentials = credentials_module.get_credential()
@@ -56,8 +67,9 @@ def store_newest_downloads(update_credentials):
                 properties["version"] = None
 
                 try:
-                    version = re.search(r'diribeowin32_([\w].*).zip', properties["filename"]).group(1)
-                    properties["version"] = version
+                    version_string = re.search(r'diribeowin32_([\w].*).zip', properties["filename"]).group(1)
+                    properties["version"] = string_to_version(version_string)
+                    properties["version_string"] = version_string
 
                     # only add if version info has been extracted properly
                     try:

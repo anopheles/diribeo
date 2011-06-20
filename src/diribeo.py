@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 __author__ = 'David Kaufman'
-__version__ = (0,0,6,"dev")
+__version__ = (0, 0, 6,"dev")
 __license__ = 'MIT'
 
 
