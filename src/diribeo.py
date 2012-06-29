@@ -2328,7 +2328,7 @@ class MainWindow(QtGui.QMainWindow):
             self.existing_series = existing_series = library.get_series_from_identifier(identifier)            
             
             if existing_series is None: 
-                current_series = Series(downloaded_series.title, identifier = identifier)
+                current_series = Series(downloaded_series.title, identifier=identifier)
                 series_list.append(current_series)
                 active_table_models[current_series] = model = EpisodeTableModel(current_series)
                 self.tableview.setModel(model)

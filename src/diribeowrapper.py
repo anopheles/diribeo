@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import datetime
+from time import strptime
 import tvrage.api
 
 from diribeomodel import Episode, Series, NoInternetConnectionAvailable, series_list, DownloadedSeries, settings, DownloadError
@@ -172,21 +173,25 @@ class IMDBWrapper(SourceWrapper):
                     yield self.__imdb_episode_to_episode(imdb_episode, imdb_series = imdb_series, ratings = ratings, counter = counter), numberofepisodes
 
     def __convert_string_to_date(self, datestring):
-        splitted_datestring = datestring.split()
-        try:
-            day = int(splitted_datestring[-3])
-        except IndexError:
-            day = 1
-        try:
-            month = self.month_lookup[splitted_datestring[-2]]
-        except IndexError:
-            month = 1
-        
-        try:    
-            year = int(splitted_datestring[-1])
-        except ValueError:
-            return None
 
+        try:
+            splitted_datestring = datestring.split()
+            try:
+                day = int(splitted_datestring[-3])
+            except IndexError:
+                day = 1
+            try:
+                month = self.month_lookup[splitted_datestring[-2]]
+            except IndexError:
+                month = 1
+
+            try:
+                year = int(splitted_datestring[-1])
+            except ValueError:
+                return None
+        except ValueError:
+            struct_time = strptime(datestring, "%b. %d, %Y")
+            year, month, day = struct_time.tm_year, struct_time.tm_mon, struct_time.tm_mday
           
         return datetime.date(year, month, day)
 
@@ -217,8 +222,7 @@ class IMDBWrapper(SourceWrapper):
                 rating = {"imdb" : self.__get_rating(ratings, imdb_episode)}
             else:
                 rating = {"imdb" : [imdb_episode.get("rating"), imdb_episode.get("votes")]}
-                
-                               
+
             date = self.__convert_string_to_date(str(imdb_episode.get('original air date')))
             
             plot = imdb_episode.get('plot')

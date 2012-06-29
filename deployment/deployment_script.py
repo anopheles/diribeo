@@ -120,7 +120,6 @@ if __name__ == "__main__":
     abs_zip_path = os.path.abspath(zip_name)
     rsapi = RapidShareAPI(credentials)
     rs_fileid = rsapi.upload_file(abs_zip_path)
-    rsapi.set_direct_download(rs_fileid)
 
     hfapi = HotFileAPI(credentials)
     hf_fileid = hfapi.upload_file(abs_zip_path, folderid="1701142", hashid="2e37c99", path="diribeo")

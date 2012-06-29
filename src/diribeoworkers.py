@@ -511,10 +511,10 @@ class SeriesSearchWorker(WorkerThread):
         
         try:
             result = library.search_movie(self.searchfield.text(), settings.settings["sources"])
-            if len(result) == 0:
-                self.nothing_found.emit()
-            else:                
+            if result:
                 self.results.emit(result)
+            else:                
+                self.nothing_found.emit()
         except NoInternetConnectionAvailable:
             self.no_connection_available.emit()
         
@@ -549,13 +549,13 @@ class ModelFiller(WorkerThread):
         self.update_seriesinformation.emit(self.series)  
         
         try:    
-            for episode, episodenumber in self.model.generator:            
+            for episode, episodenumber in self.model.generator:
                 self.model.insert_episode(episode)            
                 episode_counter += 1
                 if episode_counter % 8 == 0:
                     self.progress.emit(episode_counter, episodenumber)        
         except DownloadError:
-            self.download_error.emit(self.series);
+            self.download_error.emit(self.series)
         
         self.model.filled = True          
         self.finished.emit()
